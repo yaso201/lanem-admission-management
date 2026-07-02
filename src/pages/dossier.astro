@@ -603,7 +603,7 @@ import Layout from '../layouts/Layout.astro';
           onSubmit: async v=>{ await API.setWaitlistRank(D.dossier_id, v.rang||''); UI.emToast('Rang mis à jour.','success'); await refresh(); } });
       },'pencil'));
       if(D.is_prepa && D.notes && D.notes.valeurs && !D.notes.validees && S==='ETU')
-        body.appendChild(act('Valider les notes de concours','primary',async()=>{ await API.validerNotes(D.dossier_id); UI.emToast('Notes validées.','success'); await refresh(); },'checkcircle'));
+        body.appendChild(act('Valider les notes de concours','primary',async()=>{ try{ await API.validerNotes(D.dossier_id); UI.emToast('Notes validées.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'checkcircle'));
       if((S==='ETU'||S==='ATT') && (B.demandees||[]).length)
         body.appendChild(act('Proposer des bourses…','accent',()=>{
           UI.emModal({ title:'Proposer des bourses', lead:'Sous-ensemble des bourses DEMANDÉES par le candidat. L\'exclusivité est tranchée par la Direction à la validation.',
