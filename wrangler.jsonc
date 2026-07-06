@@ -1,0 +1,16 @@
+// Config Worker MINIMALE (site STATIQUE servi en assets-only — pas de `main`, pas
+// d'adaptateur SSR). Présence de ce fichier = stoppe le bot workers-autoconfig qui
+// re-poussait « Add Cloudflare Workers configuration » en boucle (sa proposition
+// basculait sur @astrojs/cloudflare SSR — refusée : cf. note Layout.astro, on ne
+// passera à un adapter que le jour où l'auth Frappe l'exigera).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "management-admission",
+  "compatibility_date": "2026-07-06",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "dist"
+  }
+}
