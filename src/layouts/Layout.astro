@@ -22,6 +22,23 @@ const apiBase = import.meta.env.PUBLIC_API_BASE || 'http://admission-dev.localho
     <title>{title}</title>
     <link rel="icon" href="/favicon.ico" />
     <script is:inline define:vars={{ apiBase }}>window.EMELA_API_BASE = apiBase;</script>
+    <!-- OBS-1 : capture d'erreur front AVANT api/ui/shell → attrape aussi un échec de chargement (ex. EmelaUI undefined). Silence défensif. -->
+    <script is:inline>
+      (function () {
+        var n = 0, B = window.EMELA_API_BASE || '';
+        function r(o) {
+          if (n++ > 5 || !B) return;
+          try {
+            o.front = 'management'; o.page = location.pathname; o.ua = (navigator.userAgent || '').slice(0, 160);
+            fetch(B + '/api/method/admission.api.health.log_client_error',
+              { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true, body: JSON.stringify(o) }
+            ).catch(function () {});
+          } catch (e) {}
+        }
+        addEventListener('error', function (e) { r({ message: String(e.message || '').slice(0, 300), source: String(e.filename || '').slice(0, 200), line: e.lineno, col: e.colno }); });
+        addEventListener('unhandledrejection', function (e) { r({ message: ('reject: ' + String((e.reason && e.reason.message) || e.reason || '')).slice(0, 300) }); });
+      })();
+    </script>
     <!-- D-LAYOUT-SCRIPT-ORDER-19 : externes EN HEAD (avant le slot) → EmelaAPI/EmelaUI définis
          AVANT toute IIFE de page (sinon `window.EmelaUI` undefined → crash, back-office inopérant).
          Ordre api→ui→shell préservé ; EMELA_API_BASE reste avant api.js ; shell.js boote en
