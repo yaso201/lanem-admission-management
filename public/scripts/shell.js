@@ -48,7 +48,8 @@
     document.querySelectorAll('[data-roles]').forEach(el => {
       el.hidden = !el.getAttribute('data-roles').split(/\s+/).some(r => visible.includes(r));
     });
-    document.querySelectorAll('.nav a[data-home]').forEach(a => a.setAttribute('href', ROLE_HOME[role]));
+    // STAFF-HEADER-NAV : le logo (.brand[data-home]) mène à l'accueil du rôle (superset SM inclus).
+    document.querySelectorAll('a[data-home]').forEach(a => a.setAttribute('href', ROLE_HOME[role]));
 
     if (typeof window.onEmelaRole === 'function') window.onEmelaRole(role, me);
   }

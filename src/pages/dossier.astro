@@ -1,33 +1,17 @@
 ---
 import Layout from '../layouts/Layout.astro';
 ---
-<Layout title="Vue dossier — Front management" shared={true}>
+<Layout title="Vue dossier — Front management" shared={true} page="dossier">
 <style is:global>
 
   body { background: var(--surface-canvas); }
-  .ico { width: 18px; height: 18px; flex-shrink: 0; }
-  .ico-sm { width: 15px; height: 15px; flex-shrink: 0; }
-  .ico-lg { width: 22px; height: 22px; flex-shrink: 0; }
-  [hidden] { display: none !important; }
+  /* .ico*/[hidden] retirés : déjà fournis par shell.css (importé par Layout) — fin des doublons. */
 
-  /* ---------- Topbar produit ---------- */
-  .top { background: var(--surface-paper); border-bottom: 1px solid var(--border-default); position: sticky; top: 0; z-index: var(--z-sticky); }
-  .top-inner { max-width: 1240px; margin: 0 auto; padding: var(--space-4) var(--space-9); display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); }
-  .brand { font-family: var(--font-display); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink-900); }
-  .brand span { color: var(--accent-500); }
-  .top-right { display: flex; align-items: center; gap: var(--space-5); }
-  .you { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); }
-  .you .nm { font-weight: 600; color: var(--text-primary); }
-  .you .rl { color: var(--text-tertiary); font-size: var(--text-xs); }
-  .you .av { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; }
-
-  .wrap { max-width: 1240px; margin: 0 auto; padding: var(--space-6) var(--space-9) var(--space-12); }
-  @media (max-width: 720px){ .top-inner, .wrap { padding-left: var(--space-5); padding-right: var(--space-5); } }
-
-  .crumb { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); color: var(--text-tertiary); margin-bottom: var(--space-5); }
-  .crumb a { color: var(--text-tertiary); }
-  .crumb a:hover { color: var(--text-primary); }
-  .crumb svg { color: var(--sand-300); width: 14px; height: 14px; }
+  /* STAFF-HEADER-NAV : header + breadcrumb désormais partagés (Layout + shell.css). Les
+     anciennes règles globales .top*/.brand/.you/.crumb sont retirées (elles écrasaient le
+     header/breadcrumb partagés sur cette page). .wrap = conteneur de contenu conservé. */
+  .wrap { max-width: 1280px; margin: 0 auto; padding: var(--space-6) var(--space-9) var(--space-12); }
+  @media (max-width: 720px){ .wrap { padding-left: var(--space-5); padding-right: var(--space-5); } }
 
   /* ---------- En-tête dossier ---------- */
   .dossier-head { background: var(--surface-paper); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-7) var(--space-8); margin-bottom: var(--space-6); }
@@ -176,27 +160,8 @@ import Layout from '../layouts/Layout.astro';
 
 </style>
 <!-- Topbar produit -->
-<header class="top">
-  <div class="top-inner">
-    <div class="brand"><img src="/lanem-logo.webp" alt="LaNEM" style="height:36px;width:auto;display:block"></div>
-    <div class="top-right">
-      <div class="you app-user">
-        <div style="text-align:right">
-          <div class="nm">—</div>
-          <div class="rl">—</div>
-        </div>
-        <div class="av" style="background:var(--ink-100);color:var(--ink-800)">·</div>
-      </div>
-    </div>
-  </div>
-</header>
 
 <main class="wrap">
-  <nav class="crumb">
-    <a href="/liste-dossiers">Dossiers</a>
-    <svg><use href="#i-caretright"/></svg>
-    <span id="crumb-code" style="font-family:var(--font-mono)">…</span>
-  </nav>
 
   <!-- En-tête dossier (rendu serveur : get_dossier) -->
   <section class="dossier-head">

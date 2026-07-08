@@ -13,6 +13,38 @@ interface Props {
 const { title, role = 'admin', page = '', shared = false, prog } = Astro.props;
 // C4-FRONT : base API configurable au build (recette/prod), défaut = site dev Frappe.
 const apiBase = import.meta.env.PUBLIC_API_BASE || 'http://admission-dev.localhost:8000';
+
+// STAFF-HEADER-NAV — SOURCE UNIQUE de navigation. Le header vit ICI (plus dupliqué par page) ;
+// toute page héritant de Layout le porte. `is-active` dérivé de `page` (fini le codage en dur) ;
+// visibilité par rôle via data-roles (câblée par shell.js). Ordre = ordre d'affichage.
+const NAV = [
+  { key: 'espace',       href: '/espace-administratif', label: 'Espace de traitement', icon: 'i-tray',    roles: 'admin' },
+  { key: 'cockpit',      href: '/cockpit-responsable',  label: 'Cockpit',              icon: 'i-gauge',   roles: 'resp' },
+  { key: 'tableau',      href: '/tableau-direction',    label: 'Tableau de bord',      icon: 'i-chart',   roles: 'dir' },
+  { key: 'dossiers',     href: '/liste-dossiers',       label: 'Dossiers',             icon: 'i-folders' },
+  { key: 'gestion',      href: '/gestion-sessions',     label: 'Sessions & frais',     icon: 'i-coins',   roles: 'dir' },
+  { key: 'personnel',    href: '/personnel',            label: 'Personnel',            roles: 'sm' },
+  { key: 'exploitation', href: '/exploitation',         label: 'Exploitation',         roles: 'sm' },
+  { key: 'reglages',     href: '/reglages',             label: 'Réglages',             roles: 'sm' },
+];
+// La vue détail dossier appartient à la section « Dossiers » → on y active l'entrée Dossiers.
+const activeNav = ({ dossier: 'dossiers' })[page] || page;
+
+// Breadcrumb dérivé de `page` (source unique, pas codé en dur par page). Dernier segment =
+// position courante (aria-current="page"). Le détail dossier a un segment DYNAMIQUE
+// (#crumb-code, rempli au runtime par le JS de page — comportement préservé).
+const CRUMBS = {
+  espace:       [{ label: 'Espace de traitement' }],
+  cockpit:      [{ label: 'Cockpit' }],
+  tableau:      [{ label: 'Tableau de bord' }],
+  dossiers:     [{ label: 'Dossiers' }],
+  dossier:      [{ label: 'Dossiers', href: '/liste-dossiers' }, { label: '…', id: 'crumb-code', mono: true }],
+  gestion:      [{ label: 'Sessions & frais' }],
+  personnel:    [{ label: 'Personnel' }],
+  exploitation: [{ label: 'Exploitation' }],
+  reglages:     [{ label: 'Réglages' }],
+};
+const crumbs = CRUMBS[page] || [];
 ---
 <!doctype html>
 <html lang="fr">
@@ -50,6 +82,45 @@ const apiBase = import.meta.env.PUBLIC_API_BASE || 'http://admission-dev.localho
   <body data-role={role} data-page={page} data-shared={shared ? '' : undefined} data-prog={prog}>
     <Icons />
     <a href="#main-content" class="skip-link">Aller au contenu</a>
+
+    <!-- STAFF-HEADER-NAV : header PARTAGÉ (source unique). shell.js remplit l'identité (.app-user),
+         gère la visibilité par rôle (data-roles) et la déconnexion. -->
+    <header class="app-top">
+      <div class="app-top-inner">
+        <a class="brand" href="/" data-home aria-label="Accueil"><img src="/lanem-logo.webp" alt="LaNEM" style="height:36px;width:auto;display:block" /></a>
+        <nav class="nav" aria-label="Navigation principale">
+          {NAV.map((item) => (
+            <a
+              href={item.href}
+              data-roles={item.roles}
+              class:list={[item.key === activeNav && 'is-active']}
+              aria-current={item.key === page ? 'page' : undefined}
+            >
+              {item.icon && <svg class="ico-sm" aria-hidden="true" focusable="false"><use href={`#${item.icon}`} /></svg>}{item.label}
+            </a>
+          ))}
+        </nav>
+        <div class="app-user">
+          <div class="meta"><div class="nm">—</div><div class="rl">—</div></div>
+          <div class="av">·</div>
+        </div>
+      </div>
+    </header>
+
+    {crumbs.length > 1 && (
+      <nav class="crumbwrap" aria-label="Fil d'Ariane">
+        <ol class="crumb">
+          {crumbs.map((c, i) => (
+            <li aria-current={i === crumbs.length - 1 ? 'page' : undefined}>
+              {c.href && i < crumbs.length - 1
+                ? <a href={c.href}>{c.label}</a>
+                : <span id={c.id} class:list={[c.mono && 'crumb-mono']}>{c.label}</span>}
+            </li>
+          ))}
+        </ol>
+      </nav>
+    )}
+
     <slot />
   </body>
 </html>
