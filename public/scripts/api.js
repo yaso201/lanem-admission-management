@@ -116,6 +116,41 @@
       S.removeItem('emela_csrf'); S.removeItem('emela_user');
       window.location.href = '/connexion';
     },
+
+    /* ---- STAFF-LOGIN B : récupération de mot de passe (guest) ---- */
+    // Demande : pont admission (réponse UNIFORME côté serveur — anti-énumération).
+    async requestPasswordReset(email) {
+      const res = await fetch(BASE + '/api/method/admission.api.account.request_password_reset', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (res.status === 429) throw { code: 'RATE_LIMITED', message: 'Trop de demandes. Réessayez dans une heure.' };
+      if (!res.ok) throw { code: 'REQUEST_FAILED', message: 'Le service est momentanément indisponible. Réessayez.' };
+      return true;
+    },
+    // Définition : endpoint NATIF Frappe (clé expirante/usage unique + politique de force).
+    async updatePassword(key, newPassword) {
+      const res = await fetch(BASE + '/api/method/frappe.core.doctype.user.user.update_password', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+        body: new URLSearchParams({ key, new_password: newPassword }),
+      });
+      if (res.ok) return true;
+      // 410 = contrat natif Frappe pour clé invalide/expirée/DÉJÀ CONSOMMÉE (usage unique).
+      if (res.status === 410) {
+        throw { code: 'KEY_INVALID', httpStatus: 410,
+                message: 'Le lien est invalide, expiré ou déjà utilisé. Refaites une demande.' };
+      }
+      let msg = 'Échec de l\'enregistrement. Réessayez.';
+      try {
+        const data = await res.json();
+        const raw = JSON.parse(data._server_messages || '[]')
+          .map(m => { try { return JSON.parse(m).message; } catch (e) { return String(m); } })
+          .join(' ').replace(/<[^>]+>/g, ' ').trim();
+        if (raw) msg = raw;                        // ex. politique de force native (mot de passe trop faible)
+      } catch (e) {}
+      throw { code: 'UPDATE_FAILED', message: msg, httpStatus: res.status };
+    },
+
     /* Rôle UX (sm/admin/resp/dir) depuis les rôles SERVEUR — priorité sm > dir > resp > admin.
        SM = super-admin de domaine : voit toutes les sections (superset géré dans shell.js). */
     uxRole(roles) {

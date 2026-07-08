@@ -1,0 +1,62 @@
+---
+// STAFF-LOGIN B1 — demande de réinitialisation. La réponse serveur est UNIFORME
+// (anti-énumération) : l'écran affiche donc toujours la même confirmation.
+import BareLayout from '../layouts/BareLayout.astro';
+---
+<BareLayout title="Mot de passe oublié — Front management des admissions">
+<style is:global>
+  body { background: var(--surface-canvas); }
+  .ico-sm { width: 15px; height: 15px; flex-shrink: 0; }
+  .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: var(--space-8); }
+  .card { width: 100%; max-width: 420px; background: var(--surface-paper); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-10); }
+  .h { font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.02em; }
+  .sub { font-size: var(--text-sm); color: var(--text-secondary); margin: var(--space-3) 0 var(--space-7); line-height: var(--leading-normal); }
+  .field { margin-bottom: var(--space-6); }
+  .field label { display: block; font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); margin-bottom: var(--space-3); }
+  .msg { display: none; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; line-height: 1.45; }
+  .msg.err { background: var(--error-50, #fef2f2); color: var(--error-700, #b91c1c); }
+  .msg.ok { background: var(--success-50, #f0fdf4); color: var(--success-700, #15803d); }
+  .back { display: inline-flex; align-items: center; gap: var(--space-2); margin-top: var(--space-6); font-size: var(--text-sm); color: var(--text-link); text-decoration: none; }
+  .back:hover { text-decoration: underline; }
+</style>
+
+<main class="wrap">
+  <form class="card" id="f">
+    <h1 class="h">Mot de passe oublié</h1>
+    <p class="sub">Saisissez l'adresse e-mail de votre compte staff. Si un compte existe,
+      vous recevrez un lien sécurisé pour définir un nouveau mot de passe.</p>
+
+    <div class="field">
+      <label for="email">Adresse e-mail</label>
+      <input class="em-input" id="email" type="email" placeholder="prenom.nom@lanem.bj" autocomplete="email" required />
+    </div>
+
+    <div class="msg err" id="err" role="alert" aria-live="assertive"></div>
+    <div class="msg ok" id="ok" role="status" aria-live="polite"></div>
+
+    <button type="submit" class="em-btn em-btn--primary em-btn--lg em-btn--block" id="go">Envoyer le lien</button>
+    <a class="back" href="/connexion">← Revenir à la connexion</a>
+  </form>
+</main>
+
+<script is:inline>
+(function () {
+  const f = document.getElementById('f'), err = document.getElementById('err'),
+        ok = document.getElementById('ok'), go = document.getElementById('go');
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.style.display = 'none'; ok.style.display = 'none'; go.disabled = true;
+    try {
+      await window.EmelaAPI.requestPasswordReset(document.getElementById('email').value.trim());
+      // Message UNIQUE quel que soit le compte (le serveur ne révèle rien, l'écran non plus).
+      ok.textContent = 'Si un compte staff existe pour cette adresse, un lien de réinitialisation vient d\'être envoyé. Pensez à vérifier vos indésirables.';
+      ok.style.display = 'block';
+      f.querySelector('.field').style.display = 'none'; go.style.display = 'none';
+    } catch (ex) {
+      err.textContent = (ex && ex.message) || 'Le service est momentanément indisponible.';
+      err.style.display = 'block'; go.disabled = false;
+    }
+  });
+})();
+</script>
+</BareLayout>

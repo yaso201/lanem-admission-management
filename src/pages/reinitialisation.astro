@@ -1,0 +1,113 @@
+---
+// STAFF-LOGIN B2 — définition du nouveau mot de passe. Appelle le NATIF Frappe
+// update_password (clé expirante/usage unique + politique de force serveur).
+// La clé est lue depuis l'URL puis RETIRÉE (history.replaceState) — elle ne survit
+// ni dans la barre d'adresse ni dans l'historique du navigateur.
+import BareLayout from '../layouts/BareLayout.astro';
+---
+<BareLayout title="Nouveau mot de passe — Front management des admissions">
+<style is:global>
+  body { background: var(--surface-canvas); }
+  .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: var(--space-8); }
+  .card { width: 100%; max-width: 420px; background: var(--surface-paper); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-10); }
+  .h { font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.02em; }
+  .sub { font-size: var(--text-sm); color: var(--text-secondary); margin: var(--space-3) 0 var(--space-7); line-height: var(--leading-normal); }
+  .field { margin-bottom: var(--space-6); }
+  .field label { display: block; font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); margin-bottom: var(--space-3); }
+  .pw-wrap { position: relative; }
+  .pw-wrap .em-input { padding-right: 44px; }
+  .pw-toggle { position: absolute; top: 0; right: 0; height: 100%; width: 40px; display: flex; align-items: center; justify-content: center; background: none; border: 0; cursor: pointer; color: var(--text-tertiary); border-radius: var(--radius-sm); }
+  .pw-toggle:hover { color: var(--text-primary); }
+  .pw-toggle:focus-visible { outline: 2px solid var(--violet, #5B3FA8); outline-offset: -2px; }
+  .pw-toggle svg { width: 18px; height: 18px; fill: currentColor; }
+  .msg { display: none; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; line-height: 1.45; }
+  .msg.err { background: var(--error-50, #fef2f2); color: var(--error-700, #b91c1c); }
+  .msg.ok { background: var(--success-50, #f0fdf4); color: var(--success-700, #15803d); }
+  .back { display: inline-flex; align-items: center; gap: var(--space-2); margin-top: var(--space-6); font-size: var(--text-sm); color: var(--text-link); text-decoration: none; }
+  .back:hover { text-decoration: underline; }
+</style>
+
+<main class="wrap">
+  <form class="card" id="f">
+    <h1 class="h">Définir un nouveau mot de passe</h1>
+    <p class="sub">Choisissez un mot de passe robuste — sa force est vérifiée par le serveur.</p>
+
+    <div class="field">
+      <label for="pw1">Nouveau mot de passe</label>
+      <div class="pw-wrap">
+        <input class="em-input" id="pw1" type="password" placeholder="••••••••" autocomplete="new-password" required />
+        <button type="button" class="pw-toggle" id="t1" aria-label="Afficher le mot de passe" aria-pressed="false" title="Afficher le mot de passe">
+          <svg viewBox="0 0 256 256" aria-hidden="true"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="pw2">Confirmez le mot de passe</label>
+      <input class="em-input" id="pw2" type="password" placeholder="••••••••" autocomplete="new-password" required />
+    </div>
+
+    <div class="msg err" id="err" role="alert" aria-live="assertive"></div>
+    <div class="msg ok" id="ok" role="status" aria-live="polite"></div>
+
+    <button type="submit" class="em-btn em-btn--primary em-btn--lg em-btn--block" id="go">Enregistrer le mot de passe</button>
+    <a class="back" href="/connexion" id="back" style="display:none">→ Se connecter avec le nouveau mot de passe</a>
+    <a class="back" href="/mot-de-passe-oublie" id="redo" style="display:none">← Refaire une demande de lien</a>
+  </form>
+</main>
+
+<script is:inline>
+(function () {
+  // Clé lue PUIS retirée de l'URL (replaceState) — usage unique + expirante côté serveur.
+  const key = new URLSearchParams(location.search).get('key') || '';
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+
+  const f = document.getElementById('f'), err = document.getElementById('err'),
+        ok = document.getElementById('ok'), go = document.getElementById('go'),
+        back = document.getElementById('back'), redo = document.getElementById('redo');
+
+  function fail(msg, allowRetry) {
+    err.textContent = msg; err.style.display = 'block';
+    go.disabled = false;
+    if (!allowRetry) { go.style.display = 'none'; redo.style.display = 'inline-flex'; }
+  }
+
+  if (!key) fail('Lien incomplet : la clé de réinitialisation est absente. Refaites une demande.', false);
+
+  const t1 = document.getElementById('t1'), pw1 = document.getElementById('pw1');
+  t1.addEventListener('click', () => {
+    const show = pw1.type === 'password';
+    pw1.type = show ? 'text' : 'password';
+    t1.setAttribute('aria-pressed', String(show));
+    const label = show ? 'Masquer le mot de passe' : 'Afficher le mot de passe';
+    t1.setAttribute('aria-label', label); t1.title = label;
+    pw1.focus();
+  });
+
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.style.display = 'none'; ok.style.display = 'none';
+    const pw2 = document.getElementById('pw2');
+    const v1 = pw1.value, v2 = pw2.value;
+    pw1.removeAttribute('aria-invalid'); pw2.removeAttribute('aria-invalid');
+    if (!key) return;
+    if (v1 !== v2) {
+      pw1.setAttribute('aria-invalid', 'true'); pw2.setAttribute('aria-invalid', 'true');
+      fail('Les deux saisies ne correspondent pas.', true); return;
+    }
+    go.disabled = true;
+    try {
+      await window.EmelaAPI.updatePassword(key, v1);
+      ok.textContent = 'Mot de passe enregistré. Vous pouvez vous connecter.';
+      ok.style.display = 'block';
+      go.style.display = 'none'; back.style.display = 'inline-flex';
+      document.querySelectorAll('.field').forEach((el) => { el.style.display = 'none'; });
+    } catch (ex) {
+      // Clé invalide/expirée/consommée (410 natif) → refaire une demande ; sinon (ex. mot de
+      // passe trop faible) → l'utilisateur peut corriger et réessayer.
+      const invalidKey = ex && ex.code === 'KEY_INVALID';
+      fail((ex && ex.message) || 'Échec de l\'enregistrement.', !invalidKey);
+    }
+  });
+})();
+</script>
+</BareLayout>
