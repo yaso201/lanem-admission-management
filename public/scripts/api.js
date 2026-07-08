@@ -61,8 +61,21 @@
       return message.data;
     }
     if (!res.ok) {
-      const m = (json && (json._server_messages || json.exception)) || ('Erreur HTTP ' + res.status);
-      throw { code: 'HTTP_' + res.status, message: String(m).slice(0, 300), httpStatus: res.status };
+      // Erreur Frappe BRUTE (hors enveloppe maison) : _server_messages est un JSON de messages
+      // JSON-encodés {message,title} (avec balises HTML) → parser + nettoyer, sinon le candidat/SM
+      // voit le JSON brut (cf. FIX-SM-USER-MUTATIONS). N'affecte QUE cette branche ; l'enveloppe
+      // maison {ok,data,error} est traitée au-dessus, inchangée.
+      let m = 'Erreur HTTP ' + res.status;
+      if (json && json._server_messages) {
+        try {
+          m = JSON.parse(json._server_messages)
+            .map(x => { try { return JSON.parse(x).message; } catch (e) { return String(x); } })
+            .join(' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || m;
+        } catch (e) { /* garde le fallback */ }
+      } else if (json && json.exception) {
+        m = String(json.exception);
+      }
+      throw { code: 'HTTP_' + res.status, message: m.slice(0, 300), httpStatus: res.status };
     }
     return message;
   }
