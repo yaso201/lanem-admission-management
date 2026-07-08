@@ -325,8 +325,10 @@ import Layout from '../layouts/Layout.astro';
     const pieces = D.pieces||[];
     const missing = pieces.filter(p=>p.requise && p.statut==='missing').length;
     badge($('pieces-badge'), missing? missing+' manquante(s)' : 'Complètes', missing?'warning':'success');
-    // Le SERVEUR fait foi : actions visibles seulement si Administratif & dossier SOU (le back re-garde).
-    const canAct = ROLE==='admin' && D.statut==='SOU';
+    // FIX-PROGRESSION — pur renderer : le BACK dit qui peut contrôler les pièces (can_control_pieces
+    // = ADMIN_UP + SOU, hiérarchie live). Le front garde ses sous-conditions per-pièce (uploaded→
+    // vérifiable, verified→verrouillée). Plus de ROLE==='admin' codé en dur.
+    const canAct = !!D.can_control_pieces;
     const stCls = { missing:'warning', uploaded:'neutral', verified:'success', rejected:'danger' };
     const B = (p,a,l,k)=>'<button class="em-btn em-btn--'+k+' em-btn--sm" data-pact="'+a+'" data-code="'+esc(p.code)+'">'+l+'</button>';
     $('pieces-body').innerHTML = pieces.length ? pieces.map(p=>{
@@ -396,12 +398,12 @@ import Layout from '../layouts/Layout.astro';
         html += '<span class="em-badge em-badge--success em-badge--sm"><span class="em-badge-dot"></span>'+(f.status==='Paid'?'Payé':'Confirmé')+'</span>'+
           '<button class="em-btn em-btn--secondary em-btn--sm" data-receipt="'+esc(conf.name)+'">Reçu PDF</button>';
       } else if(pend && (pend.payment_mode==='Cash'||pend.payment_mode==='Bank')){
-        html += (ROLE==='admin'
+        html += (D.can_manage_payments
           ? '<button class="em-btn em-btn--primary em-btn--sm" data-confirm="'+esc(pend.name)+'"><svg class="ico-sm"><use href="#i-check"/></svg>Confirmer</button>'
           : '<span class="em-badge em-badge--warning em-badge--sm"><span class="em-badge-dot"></span>En attente</span>');
       } else if(pend){
         html += '<span class="em-badge em-badge--warning em-badge--sm"><span class="em-badge-dot"></span>En ligne · en attente webhook</span>';
-      } else if(ROLE==='admin'){
+      } else if(D.can_manage_payments){
         html += '<button class="em-btn em-btn--secondary em-btn--sm" data-online="'+esc(f.fee_type)+'"><svg class="ico-sm"><use href="#i-wallet"/></svg>Initier en ligne</button>';
       }
       html += '</div></div>';
@@ -529,109 +531,104 @@ import Layout from '../layouts/Layout.astro';
   function renderActions(){
     const body = $('act-body');
     body.innerHTML = '';
+    // FIX-PROGRESSION — PUR RENDERER : le BACK sert available_actions (dérivé des gardes,
+    // hiérarchie live + statut + conditions métier). Le front ne DEVINE plus par rôle : il
+    // rend une action ssi sa clé est autorisée. Plus de uxRole collapse, plus de branches
+    // admin/resp/dir, plus de canAct=admin. La séparation des pouvoirs est portée par le back
+    // (ex. accept_admission = Direction) → un Responsable ne le reçoit pas, par construction.
+    const A = D.available_actions || [];
+    const can = k => A.includes(k);
+    const S = D.statut, B = D.bourses||{};
+    $('act-title').textContent = 'Actions';
+    // Pastille de rôle : COSMÉTIQUE uniquement (couleur d'en-tête), n'entre PLUS dans la décision
+    // d'afficher une action (celle-ci vient à 100 % de available_actions).
     const head = $('act-head');
     head.classList.remove('role-admin','role-resp','role-dir');
-    head.classList.add('role-'+ROLE);
-    $('act-title').textContent = 'Actions — '+({admin:'Administratif',resp:'Responsable',dir:'Direction'})[ROLE];
-    const S = D.statut, B = D.bourses||{};
+    if(ROLE) head.classList.add('role-'+ROLE);
 
-    if(ROLE==='admin'){
-      if(S==='SOU') body.appendChild(act("Mettre en étude (SOU → ETU)",'primary',async()=>{ try{ await API.startReview(D.dossier_id); UI.emToast('Dossier mis en étude.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'checkcircle'));
-      // Lot 3c-2 — contrôle documentaire (le back re-garde tout)
-      if(S==='SOU') body.appendChild(act('Notifier le candidat (pièces à corriger)','secondary',async()=>{ try{ await API.notifyRecap(D.dossier_id); UI.emToast('Récapitulatif envoyé au candidat.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'paperplane'));
-      if(S==='SOU') body.appendChild(act('Rejeter le dossier (contrôle documentaire)','danger',()=>motifModal('Rejeter le dossier',"Sortie de la boucle de re-soumission — le candidat est notifié. Réversible (Rouvrir). Pas de remboursement (CGV).",'Rejeter le dossier',m=>API.rejectDossier(D.dossier_id,m)),'gavel'));
-      if(S==='REJ') body.appendChild(act('Rouvrir le dossier (REJ → SOU)','primary',async()=>{ try{ await API.reopenDossier(D.dossier_id); UI.emToast('Dossier rouvert.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'checkcircle'));
-      if(S==='SOU'||S==='ETU') body.appendChild(act('Demander un complément…','secondary',()=>motifModal('Demander un complément',"Renvoie le dossier en Incomplet (INC) — le candidat est notifié avec le motif.",'Renvoyer en incomplet',m=>API.requestComplement(D.dossier_id,m)),'paperplane'));
-      if(D.is_prepa && S==='ETU' && !(D.notes&&D.notes.validees)) body.appendChild(act((D.notes&&D.notes.valeurs)?'Corriger la saisie des notes…':'Saisir les notes de concours…','primary',()=>{
-        UI.emModal({ title:'Notes de concours', lead:'Saisie par l\'Administratif — la validation reste au Responsable (séparation des pouvoirs).',
-          fields:[{name:'notes',label:'Notes',type:'rows',required:true,value:(D.notes&&D.notes.valeurs)||{}}], submitLabel:'Enregistrer',
-          onSubmit: async v=>{ await API.saisirNotes(D.dossier_id, v.notes); UI.emToast('Notes enregistrées (à valider).','success'); await refresh(); } });
-      },'pencil'));
-      if(S==='ACO' && !D.bac_verified) body.appendChild(act('Vérifier le diplôme du Bac','primary',async()=>{ await API.verifyBac(D.dossier_id).catch(e=>{UI.emToast(e.message,'error');throw e;}); UI.emToast('Diplôme vérifié — la levée appartient à la Direction.','success'); await refresh(); },'graduation'));
-      /* W1 (B0.1) : désistement — motif obligatoire, candidat notifié (ton neutre). */
-      if(['BRO','SOP','SOU','ETU','ATT','ADM','ACO','ACC'].includes(S))
-        body.appendChild(act('Désister le dossier…','secondary',()=>motifModal('Désister le dossier',
-          'Clôture le dossier (DES) — geste sur demande du candidat. Le motif est obligatoire et le candidat est notifié (ton neutre, pas un refus).',
-          'Désister', m=>API.withdraw(D.dossier_id,m)),'x'));
-      const note = document.createElement('div');
-      note.className='act-note';
-      note.innerHTML='<svg class="ico"><use href="#i-info"/></svg><span>Vous préparez le dossier (pièces via complément, paiements, notes, désistement sur demande). La décision appartient au Responsable, la validation à la Direction.</span>';
-      body.appendChild(note);
+    // ── Instruction / contrôle documentaire ────────────────────────────────
+    if(can('start_review')) body.appendChild(act("Mettre en étude (SOU → ETU)",'primary',async()=>{ try{ await API.startReview(D.dossier_id); UI.emToast('Dossier mis en étude.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'checkcircle'));
+    if(can('notify_pieces_recap')) body.appendChild(act('Notifier le candidat (pièces à corriger)','secondary',async()=>{ try{ await API.notifyRecap(D.dossier_id); UI.emToast('Récapitulatif envoyé au candidat.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'paperplane'));
+    if(can('reject_dossier')) body.appendChild(act('Rejeter le dossier (contrôle documentaire)','danger',()=>motifModal('Rejeter le dossier',"Sortie de la boucle de re-soumission — le candidat est notifié. Réversible (Rouvrir). Pas de remboursement (CGV).",'Rejeter le dossier',m=>API.rejectDossier(D.dossier_id,m)),'gavel'));
+    if(can('reopen_dossier')) body.appendChild(act('Rouvrir le dossier (REJ → SOU)','primary',async()=>{ try{ await API.reopenDossier(D.dossier_id); UI.emToast('Dossier rouvert.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'checkcircle'));
+    if(can('request_complement')) body.appendChild(act('Demander un complément…','secondary',()=>motifModal('Demander un complément',"Renvoie le dossier en Incomplet (INC) — le candidat est notifié avec le motif.",'Renvoyer en incomplet',m=>API.requestComplement(D.dossier_id,m)),'paperplane'));
+    if(can('saisir_note_concours')) body.appendChild(act((D.notes&&D.notes.valeurs)?'Corriger la saisie des notes…':'Saisir les notes de concours…','primary',()=>{
+      UI.emModal({ title:'Notes de concours', lead:'Saisie par l\'Administratif — la validation reste au Responsable (séparation des pouvoirs).',
+        fields:[{name:'notes',label:'Notes',type:'rows',required:true,value:(D.notes&&D.notes.valeurs)||{}}], submitLabel:'Enregistrer',
+        onSubmit: async v=>{ await API.saisirNotes(D.dossier_id, v.notes); UI.emToast('Notes enregistrées (à valider).','success'); await refresh(); } });
+    },'pencil'));
+    if(can('valider_notes_concours')) body.appendChild(act('Valider les notes de concours','primary',async()=>{ try{ await API.validerNotes(D.dossier_id); UI.emToast('Notes validées.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'checkcircle'));
+    if(can('verify_bac_diploma')) body.appendChild(act('Vérifier le diplôme du Bac','primary',async()=>{ await API.verifyBac(D.dossier_id).catch(e=>{UI.emToast(e.message,'error');throw e;}); UI.emToast('Diplôme vérifié — la levée appartient à la Direction.','success'); await refresh(); },'graduation'));
+    if(can('propose_scholarships')) body.appendChild(act('Proposer des bourses…','accent',()=>{
+      UI.emModal({ title:'Proposer des bourses', lead:'Sous-ensemble des bourses DEMANDÉES par le candidat. L\'exclusivité est tranchée par la Direction à la validation.',
+        fields:[boursesField(B.demandees,'Bourses à proposer')], submitLabel:'Proposer',
+        onSubmit: async v=>{ await API.proposeScholarships(D.dossier_id, v.bourses); UI.emToast('Bourses proposées.','success'); await refresh(); } });
+    },'medal'));
+    if(can('set_waitlist_rank')) body.appendChild(act(D.rang_liste_attente?('Modifier le rang d\'attente (actuel : '+D.rang_liste_attente+')…'):'Fixer le rang d\'attente…','secondary',()=>{
+      UI.emModal({ title:'Rang de liste d\'attente', lead:'Ordre opposable de rappel si une place se libère.',
+        fields:[{name:'rang',label:'Rang (entier ≥ 1, vide pour effacer)',type:'number',value:D.rang_liste_attente||''}],
+        submitLabel:'Enregistrer',
+        onSubmit: async v=>{ await API.setWaitlistRank(D.dossier_id, v.rang||''); UI.emToast('Rang mis à jour.','success'); await refresh(); } });
+    },'pencil'));
+
+    // ── Décision (Responsable) : Admettre / Liste d'attente / Refuser (ETU) ──
+    if(can('mark_admissible')||can('waitlist')||(can('refuse')&&S==='ETU')){
+      const row = document.createElement('div'); row.className='act-decide';
+      if(can('mark_admissible')) row.appendChild(act('Admettre','primary',async()=>{ try{ await API.markAdmissible(D.dossier_id); UI.emToast('Dossier admis (ADM) — validation Direction attendue.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'gavel'));
+      if(can('waitlist')) row.appendChild(act('Liste d\'attente…','secondary',()=>{
+        UI.emModal({ title:'Mettre en liste d\'attente', fields:[{name:'rang',label:'Rang (optionnel)',type:'number'}], submitLabel:'Confirmer',
+          onSubmit: async v=>{ await API.waitlist(D.dossier_id, v.rang||null); UI.emToast('Dossier en liste d\'attente.','success'); await refresh(); } });
+      }));
+      if(can('refuse')&&S==='ETU') row.appendChild(act('Refuser…','secondary',()=>motifModal('Refuser le dossier','Le motif est obligatoire et notifié au candidat.','Refuser',m=>API.refuse(D.dossier_id,m)),'x'));
+      body.appendChild(row);
     }
+    if(can('conditional_admission')) body.appendChild(act('Admission conditionnelle (bac en attente)','accent',async()=>{ try{ await API.conditionalAdmission(D.dossier_id); UI.emToast('Admission conditionnelle prononcée (ACO).','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'hourglass'));
 
-    if(ROLE==='resp'){
-      /* W5 : rang de liste d'attente OPPOSABLE — édition Resp sur dossier ATT. */
-      if(S==='ATT') body.appendChild(act(D.rang_liste_attente?('Modifier le rang d\'attente (actuel : '+D.rang_liste_attente+')…'):'Fixer le rang d\'attente…','secondary',()=>{
-        UI.emModal({ title:'Rang de liste d\'attente', lead:'Ordre opposable de rappel si une place se libère.',
-          fields:[{name:'rang',label:'Rang (entier ≥ 1, vide pour effacer)',type:'number',value:D.rang_liste_attente||''}],
-          submitLabel:'Enregistrer',
-          onSubmit: async v=>{ await API.setWaitlistRank(D.dossier_id, v.rang||''); UI.emToast('Rang mis à jour.','success'); await refresh(); } });
-      },'pencil'));
-      if(D.is_prepa && D.notes && D.notes.valeurs && !D.notes.validees && S==='ETU')
-        body.appendChild(act('Valider les notes de concours','primary',async()=>{ try{ await API.validerNotes(D.dossier_id); UI.emToast('Notes validées.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'checkcircle'));
-      if((S==='ETU'||S==='ATT') && (B.demandees||[]).length)
-        body.appendChild(act('Proposer des bourses…','accent',()=>{
-          UI.emModal({ title:'Proposer des bourses', lead:'Sous-ensemble des bourses DEMANDÉES par le candidat. L\'exclusivité est tranchée par la Direction à la validation.',
-            fields:[boursesField(B.demandees,'Bourses à proposer')], submitLabel:'Proposer',
-            onSubmit: async v=>{ await API.proposeScholarships(D.dossier_id, v.bourses); UI.emToast('Bourses proposées.','success'); await refresh(); } });
-        },'medal'));
-      if(S==='ETU'||S==='ATT'){
-        const row = document.createElement('div'); row.className='act-decide';
-        const adm = act('Admettre','primary',async()=>{ try{ await API.markAdmissible(D.dossier_id); UI.emToast('Dossier admis (ADM) — validation Direction attendue.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'gavel');
-        row.appendChild(adm);
-        if(S==='ETU'){
-          row.appendChild(act('Liste d\'attente…','secondary',()=>{
-            UI.emModal({ title:'Mettre en liste d\'attente', fields:[{name:'rang',label:'Rang (optionnel)',type:'number'}], submitLabel:'Confirmer',
-              onSubmit: async v=>{ await API.waitlist(D.dossier_id, v.rang||null); UI.emToast('Dossier en liste d\'attente.','success'); await refresh(); } });
-          }));
-          row.appendChild(act('Refuser…','secondary',()=>motifModal('Refuser le dossier','Le motif est obligatoire et notifié au candidat.','Refuser',m=>API.refuse(D.dossier_id,m)),'x'));
-        }
-        body.appendChild(row);
-        if(S==='ETU' && D.conditionnel) body.appendChild(act('Admission conditionnelle (bac en attente)','accent',async()=>{ try{ await API.conditionalAdmission(D.dossier_id); UI.emToast('Admission conditionnelle prononcée (ACO).','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'hourglass'));
-      }
-    }
-
-    if(ROLE==='dir'){
-      if(S==='ADM') body.appendChild(act('Accepter l\'admission (+ bourses)…','primary',()=>{
-        // R2 : la validation des bourses est ATOMIQUE avec l'acceptation (un seul geste Direction)
+    // ── Validation (Direction) : Accepter / Refuser (ADM) / Lever / Inscrire ─
+    if(can('accept_admission')) body.appendChild(act('Accepter l\'admission (+ bourses)…','primary',()=>{
+      // R2 : la validation des bourses est ATOMIQUE avec l'acceptation (un seul geste Direction)
+      const source = (B.proposees||[]).length ? B.proposees : B.demandees;
+      const fields = (source||[]).length ? [boursesField(source,'Bourses validées avec l\'acceptation (décochez pour ne pas valider)')] : [];
+      UI.emModal({ title:'Accepter l\'admission (ADM → ACC)',
+        lead:(source||[]).length?'Les bourses cochées sont validées DANS LE MÊME geste (D11 §6.3) et notifiées au candidat avec la décision. Taux indicatifs — le montant final est calculé à l\'inscription.':'Aucune bourse demandée — acceptation simple.',
+        fields, submitLabel:'Accepter',
+        onSubmit: async v=>{ await API.acceptAdmission(D.dossier_id, fields.length? v.bourses : null); UI.emToast('Admission acceptée (frais 2 émis).','success'); await refresh(); } });
+    },'check'));
+    if(can('refuse')&&S==='ADM') body.appendChild(act('Refuser (ADM)…','secondary',()=>motifModal('Refuser un dossier admissible',
+      'ADM → REF par la Direction. Le motif est obligatoire et notifié au candidat.',
+      'Refuser', m=>API.refuse(D.dossier_id,m)),'x'));
+    if(can('lift_condition')||can('refuse_condition')){
+      const row = document.createElement('div'); row.className='act-decide';
+      if(can('lift_condition')) row.appendChild(act('Lever la condition…','primary',()=>{
         const source = (B.proposees||[]).length ? B.proposees : B.demandees;
-        const fields = (source||[]).length ? [boursesField(source,'Bourses validées avec l\'acceptation (décochez pour ne pas valider)')] : [];
-        UI.emModal({ title:'Accepter l\'admission (ADM → ACC)',
-          lead:(source||[]).length?'Les bourses cochées sont validées DANS LE MÊME geste (D11 §6.3) et notifiées au candidat avec la décision. Taux indicatifs — le montant final est calculé à l\'inscription.':'Aucune bourse demandée — acceptation simple.',
-          fields, submitLabel:'Accepter',
-          onSubmit: async v=>{ await API.acceptAdmission(D.dossier_id, fields.length? v.bourses : null); UI.emToast('Admission acceptée (frais 2 émis).','success'); await refresh(); } });
+        const fields = (source||[]).length ? [boursesField(source,'Bourses validées avec la levée')] : [];
+        UI.emModal({ title:'Lever la condition (ACO → ACC)',
+          lead: D.bac_verified ? 'Le diplôme est vérifié — la levée rend l\'admission définitive.' : 'Le diplôme n\'est PAS encore vérifié : le serveur refusera (BAC_NOT_VERIFIED).',
+          fields, submitLabel:'Lever la condition',
+          onSubmit: async v=>{ await API.liftCondition(D.dossier_id, fields.length? v.bourses : null); UI.emToast('Condition levée — admission acceptée.','success'); await refresh(); } });
       },'check'));
-      /* W2 (B0.2) : revenir sur une admissibilité = Direction (calé Workflow ADM→Refuse). */
-      if(S==='ADM') body.appendChild(act('Refuser (ADM)…','secondary',()=>motifModal('Refuser un dossier admissible',
-        'ADM → REF par la Direction. Le motif est obligatoire et notifié au candidat.',
-        'Refuser', m=>API.refuse(D.dossier_id,m)),'x'));
-      if(S==='ACO'){
-        const row = document.createElement('div'); row.className='act-decide';
-        row.appendChild(act('Lever la condition…','primary',()=>{
-          const source = (B.proposees||[]).length ? B.proposees : B.demandees;
-          const fields = (source||[]).length ? [boursesField(source,'Bourses validées avec la levée')] : [];
-          UI.emModal({ title:'Lever la condition (ACO → ACC)',
-            lead: D.bac_verified ? 'Le diplôme est vérifié — la levée rend l\'admission définitive.' : 'Le diplôme n\'est PAS encore vérifié : le serveur refusera (BAC_NOT_VERIFIED).',
-            fields, submitLabel:'Lever la condition',
-            onSubmit: async v=>{ await API.liftCondition(D.dossier_id, fields.length? v.bourses : null); UI.emToast('Condition levée — admission acceptée.','success'); await refresh(); } });
-        },'check'));
-        row.appendChild(act('Refuser (échec bac)…','secondary',()=>motifModal('Refuser (échec au bac)','ACO → REF. Motif obligatoire.','Refuser',m=>API.refuseCondition(D.dossier_id,m)),'x'));
-        body.appendChild(row);
-      }
-      if(S==='ACC') body.appendChild(act('Inscrire (ACC → INS)…','primary',()=>{
-        UI.emModal({ title:'Inscription réelle (ACC → INS)',
-          lead:'Déclenche la création de l\'étudiant côté campus (irréversible). Le serveur vérifie les gates : frais 2 payé + consentement de transfert.',
-          fields:[], submitLabel:'Inscrire',
-          onSubmit: async ()=>{ await API.enroll(D.dossier_id); UI.emToast('Dossier inscrit — chaîne campus déclenchée.','success'); await refresh(); } });
-      },'graduation'));
-      const note = document.createElement('div');
-      note.className='act-note';
-      note.innerHTML='<svg class="ico"><use href="#i-shield"/></svg><span>Vous validez : acceptation (avec bourses, geste atomique), levée de condition, inscription. La levée exige la vérification préalable du diplôme par l\'Administratif (INV-HUMAN).</span>';
-      body.appendChild(note);
+      if(can('refuse_condition')) row.appendChild(act('Refuser (échec bac)…','secondary',()=>motifModal('Refuser (échec au bac)','ACO → REF. Motif obligatoire.','Refuser',m=>API.refuseCondition(D.dossier_id,m)),'x'));
+      body.appendChild(row);
     }
+    if(can('enroll')) body.appendChild(act('Inscrire (ACC → INS)…','primary',()=>{
+      UI.emModal({ title:'Inscription réelle (ACC → INS)',
+        lead:'Déclenche la création de l\'étudiant côté campus (irréversible). Le serveur vérifie les gates : frais 2 payé + consentement de transfert.',
+        fields:[], submitLabel:'Inscrire',
+        onSubmit: async ()=>{ await API.enroll(D.dossier_id); UI.emToast('Dossier inscrit — chaîne campus déclenchée.','success'); await refresh(); } });
+    },'graduation'));
+
+    // ── Désistement (sur demande candidat) — dernier ────────────────────────
+    if(can('withdraw')) body.appendChild(act('Désister le dossier…','secondary',()=>motifModal('Désister le dossier',
+      'Clôture le dossier (DES) — geste sur demande du candidat. Le motif est obligatoire et le candidat est notifié (ton neutre, pas un refus).',
+      'Désister', m=>API.withdraw(D.dossier_id,m)),'x'));
 
     if(!body.children.length){
-      body.innerHTML = '<p class="act-lead" style="margin:0">Aucune action pour votre rôle dans l\'état actuel ('+esc(S)+').</p>';
+      // GP5 — message CLAIR (jamais « undefined ») : aucun bouton fabriqué. Cas SM (support only,
+      // hors hiérarchie workflow) ou état sans action pour le profil courant.
+      const p = document.createElement('p');
+      p.className = 'act-lead'; p.style.margin = '0';
+      p.textContent = 'Aucune action disponible pour votre profil sur ce dossier (état : ' + S + ').';
+      body.appendChild(p);
     }
   }
 
