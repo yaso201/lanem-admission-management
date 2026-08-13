@@ -128,7 +128,7 @@ import Layout from '../layouts/Layout.astro';
     window.__emelaRole = role;  /* W4 : rôle dispo pour le rendu du bouton Clôturer */
     try {
       const [sessions, frais, promos, bourses] = await Promise.all([
-        API.resource('Admission Session', ['name','label','academic_year','programme_code','programme_label','is_open','opens_on','closes_on'], null, 'opens_on desc'),
+        API.resource('Admission Session', ['name','label','academic_year','programme_code','programme_label','is_open','opens_on','closes_on','exam_date'], null, 'opens_on desc'),
         API.resource('Admission Fee Catalog', ['name','program_code','level_code','fee_type','amount_xof'], null, 'name asc'),
         API.resource('Admission Promotion Mirror', ['mirror_key','promo_name','rate','start_date','end_date','program'], null, 'start_date desc'),
         API.resource('Admission Scholarship Mirror', ['mirror_key','scholarship_name','category','rate','exclusivity_group'], null, 'category asc'),
@@ -140,8 +140,18 @@ import Layout from '../layouts/Layout.astro';
         '<div class="sess-meta"><span>'+esc(s.programme_label||s.programme_code||'')+'</span><span>'+esc(s.academic_year||'')+'</span><span>Dépôts : '+esc(API.fmtDate(s.opens_on))+' → '+esc(API.fmtDate(s.closes_on))+'</span></div></div>'+
         '<div class="sess-side"><span class="em-badge em-badge--'+(s.is_open?'success':'neutral')+' em-badge--sm"><span class="em-badge-dot"></span>'+(s.is_open?'Ouverte':'Fermée')+'</span>'+
         (s.is_open && window.__emelaRole==='dir' ? ' <button type="button" class="em-btn em-btn--secondary em-btn--sm" data-close-session="'+esc(s.name)+'" data-label="'+esc(s.label||s.name)+'">Clôturer…</button>' : '')+
+        /* DOCUMENTS-JOUR-EPREUVE : documents de salle, seulement pour une session à date d'épreuve.
+           Visibles quel que soit is_open (le jour de l'épreuve la session est fermée — GJ6). */
+        (s.exam_date ? ' <button type="button" class="em-btn em-btn--secondary em-btn--sm" data-print-emarge="'+esc(s.name)+'"><svg class="ico-sm"><use href="#i-file"/></svg>Émargement</button>'+
+          ' <button type="button" class="em-btn em-btn--secondary em-btn--sm" data-print-etat="'+esc(s.name)+'"><svg class="ico-sm"><use href="#i-file"/></svg>État concours</button>' : '')+
         '</div></div>'
       ).join('') || '<p class="t-muted" style="padding:var(--space-6)">Aucune session.</p>';
+
+      document.getElementById('sessions-list').addEventListener('click', async e => {
+        const em = e.target.closest('[data-print-emarge]'), et = e.target.closest('[data-print-etat]');
+        if (em) { try { await API.printEmargement(em.dataset.printEmarge); } catch(x){ UI.emToast(x.message||'Impression impossible.','error'); } }
+        else if (et) { try { await API.printEtatConcours(et.dataset.printEtat); } catch(x){ UI.emToast(x.message||'Impression impossible.','error'); } }
+      });
 
       /* W4 (B0.3/B0.4) : clôture de session — PRÉVISUALISATION (dry-run serveur) puis
          confirmation explicite. Bascule en masse : instruits→REF, non-aboutis→DES,

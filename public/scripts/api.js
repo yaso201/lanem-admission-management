@@ -341,6 +341,46 @@
       URL.revokeObjectURL(a.href);
     },
 
+    /* CONVOCATION-PREPA — édition de la convocation au guichet (miroir downloadReceipt).
+       Sans garde de session → fonctionne le matin de l'épreuve sur une session fermée (GC5). */
+    async downloadConvocation(dossierId) {
+      const res = await request('/api/method/admission.api.staff.download_convocation',
+        { params: { dossier_id: dossierId }, raw: true });
+      const ct = res.headers.get('Content-Type') || '';
+      if (ct.includes('json')) {
+        const json = await res.json();
+        const err = (json.message && json.message.error) || {};
+        throw { code: err.code || 'ERROR', message: err.message || 'Convocation indisponible.', httpStatus: 409 };
+      }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'convocation-' + dossierId + '.pdf';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    },
+
+    /* DOCUMENTS-JOUR-EPREUVE — documents de salle depuis la session (PDF paysage, à la demande).
+       Sans garde de session → génère le jour de l'épreuve sur une session fermée (GJ6). */
+    async _downloadSessionDoc(method, session, fname) {
+      const res = await request('/api/method/admission.api.staff.' + method,
+        { params: { session }, raw: true });
+      const ct = res.headers.get('Content-Type') || '';
+      if (ct.includes('json')) {
+        const json = await res.json();
+        const err = (json.message && json.message.error) || {};
+        throw { code: err.code || 'ERROR', message: err.message || 'Document indisponible.', httpStatus: 409 };
+      }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fname + '-' + session + '.pdf';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    },
+    printEmargement(session) { return this._downloadSessionDoc('print_emargement', session, 'emargement'); },
+    printEtatConcours(session) { return this._downloadSessionDoc('print_etat_concours', session, 'etat-concours'); },
+
     /* ---- affichage (JAMAIS de calcul de montant) ---- */
     fmtXOF(n) {
       if (n === null || n === undefined || n === '') return '—';
