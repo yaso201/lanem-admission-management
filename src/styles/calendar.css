@@ -44,6 +44,9 @@
 .ss--ouv .d{background:var(--success-500)}
 .ss--fer{background:var(--sand-100);color:var(--sand-600)}
 .ss--fer .d{background:var(--sand-400)}
+/* CAL-03 : nuance « Ouverte — échue » (clôture dépassée, avant le job nocturne) — jetons warning */
+.ss--ech{background:var(--warning-50);color:var(--warning-700);border:1px solid var(--warning-100)}
+.ss--ech .d{background:var(--warning-500)}
 
 /* ---------- Groupes par année académique ---------- */
 .aa{margin-bottom:var(--space-7)}

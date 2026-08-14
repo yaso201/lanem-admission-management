@@ -17,6 +17,25 @@
   function shift(x, n) { const d = toD(x); d.setDate(d.getDate() + n); return toIso(d); }
   function days(a, b) { return Math.round((toD(b) - toD(a)) / 86400000); }
 
+  /* CAL-11 : les valeurs de pending sont des CHAÎNES typées par champ (date ISO, heure
+     "7:30:00"/"07:45" — str(timedelta) serveur peut omettre le zéro de tête —, salle libre).
+     Un formateur de date sur une heure rend « NaN undefined » : dispatch par fieldname.
+     UNE implémentation, trois consommateurs (cartes validations, fiche session, modale).
+     La salle sort BRUTE : c'est l'APPELANT qui échappe (esc). */
+  const DATE_KEYS = { opens_on: 1, closes_on: 1, exam_date: 1, bac_results_date: 1 };
+  const TIME_KEYS = { exam_call_time: 1, exam_start_time: 1 };
+  function fmtTime(v) {
+    if (!v) return '—';
+    const p = String(v).split(':');
+    return String(p[0] || '0').padStart(2, '0') + ':' + String(p[1] || '00').padStart(2, '0');
+  }
+  function fmtVal(field, v) {
+    if (v === null || v === undefined || v === '') return '—';
+    if (DATE_KEYS[field]) return fmtDow(v);
+    if (TIME_KEYS[field]) return fmtTime(v);
+    return String(v);
+  }
+
   /* Les trois états du lifecycle (§2). `display_status` du serveur (brouillon/a_venir/echue/
      fermee) est une NUANCE d'affichage : il ne remplace pas le badge d'état. */
   const STATE = {
@@ -56,11 +75,20 @@
   function pendingOf(s, field) { return (s.pending || []).filter(function (p) { return p.change_field === field; })[0]; }
   function stateOf(s) { return STATE[s.lifecycle_state] || STATE.Draft; }
   function ico(k) { return '<svg class="ico-sm" aria-hidden="true"><use href="#' + k + '"/></svg>'; }
-  function badge(s) { const st = stateOf(s); return '<span class="ss ' + st.cls + '"><span class="d"></span>' + st.label + '</span>'; }
+  /* CAL-03 : `display_status` du serveur ne sert QUE la nuance « échue » (Open à date de clôture
+     dépassée, avant le passage du job nocturne). Les états restent rendus depuis lifecycle_state
+     — pas de double source d'affichage. Une Closed échue reste « Fermée » (badge déjà juste). */
+  function isEchue(s) { return s.lifecycle_state === 'Open' && s.display_status === 'echue'; }
+  function badge(s) {
+    const st = stateOf(s);
+    if (isEchue(s)) return '<span class="ss ss--ech"><span class="d"></span>' + st.label + ' — échue</span>';
+    return '<span class="ss ' + st.cls + '"><span class="d"></span>' + st.label + '</span>';
+  }
 
   window.EmelaCal = {
     MOIS: MOIS, JOURS: JOURS, STATE: STATE, DATE_FIELDS: DATE_FIELDS, EXAM_FIELDS: EXAM_FIELDS, MODE_UI: MODE_UI,
     toD: toD, toIso: toIso, fmt: fmt, dow: dow, fmtDow: fmtDow, shift: shift, days: days,
+    fmtTime: fmtTime, fmtVal: fmtVal, isEchue: isEchue,
     mode: mode, fullName: fullName, pendingOf: pendingOf, stateOf: stateOf, badge: badge, ico: ico
   };
 })();

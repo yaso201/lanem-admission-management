@@ -94,10 +94,12 @@ import '../styles/calendar.css';
   }
 
   function deltaRow(c){
+    /* CAL-11 : formateur par TYPE de champ (K.fmtVal) — fmtDow sur une heure « 7:30:00 » ou une
+       salle rendait « NaN undefined ». La salle sort brute de fmtVal → esc() ici. */
     return '<div class="delta">'
-      + '<div class="delta-box old"><div class="lb">'+esc(c.field_label||c.change_field)+' — en vigueur</div><div class="vl">'+K.fmtDow(c.current_value)+'</div></div>'
+      + '<div class="delta-box old"><div class="lb">'+esc(c.field_label||c.change_field)+' — en vigueur</div><div class="vl">'+esc(K.fmtVal(c.change_field, c.current_value))+'</div></div>'
       + '<div class="delta-arrow"><svg class="ico"><use href="#i-arrowright"/></svg></div>'
-      + '<div class="delta-box new"><div class="lb">Proposé</div><div class="vl">'+K.fmtDow(c.proposed_value)+'</div></div></div>';
+      + '<div class="delta-box new"><div class="lb">Proposé</div><div class="vl">'+esc(K.fmtVal(c.change_field, c.proposed_value))+'</div></div></div>';
   }
 
   function consequence(g, k){
@@ -151,10 +153,12 @@ import '../styles/calendar.css';
     const s = g.s, c = g.changes.filter(x=>x.triggers_reissue)[0] || g.changes[0];
     document.getElementById('mo-sub').textContent = K.fullName(s)+' · '+s.session_code;
     document.getElementById('mo-n').textContent = s.convocation_count;
-    document.getElementById('mo-old').innerHTML = K.fmt(c.current_value)+' <span class="dow">'+K.dow(c.current_value)
-      + (s.exam_call_time ? ' · appel '+s.exam_call_time : '')+(s.exam_room ? ' · '+esc(s.exam_room) : '')+'</span>';
-    document.getElementById('mo-new').innerHTML = K.fmt(c.proposed_value)+' <span class="dow">'+K.dow(c.proposed_value)
-      + (s.exam_call_time ? ' · appel '+s.exam_call_time : '')+(s.exam_room ? ' · '+esc(s.exam_room) : '')+'</span>';
+    /* CAL-11 : `c` = premier triggers_reissue — peut être une HEURE ou une SALLE, pas
+       seulement une date → K.fmtVal (fmt/dow sur une heure rendait « NaN undefined »). */
+    document.getElementById('mo-old').innerHTML = esc(K.fmtVal(c.change_field, c.current_value))+' <span class="dow">'
+      + (s.exam_call_time ? ' · appel '+esc(K.fmtTime(s.exam_call_time)) : '')+(s.exam_room ? ' · '+esc(s.exam_room) : '')+'</span>';
+    document.getElementById('mo-new').innerHTML = esc(K.fmtVal(c.change_field, c.proposed_value))+' <span class="dow">'
+      + (s.exam_call_time ? ' · appel '+esc(K.fmtTime(s.exam_call_time)) : '')+(s.exam_room ? ' · '+esc(s.exam_room) : '')+'</span>';
     document.getElementById('mo-ok-lb').textContent = 'Valider et réémettre '+s.convocation_count+' convocations';
     const others = g.changes.filter(x=>x !== c);
     document.getElementById('mo-extra').innerHTML = others.length

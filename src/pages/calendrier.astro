@@ -147,7 +147,9 @@ import '../styles/calendar.css';
         if(pe) bar+='<div class="tl-dot pending" style="left:'+pos(pe.proposed_value)+'%;opacity:.55" title="Report proposé — '+K.fmtDow(pe.proposed_value)+'">É</div>';
       }
       return '<div class="tl-row"><div class="tl-lab"><div class="nm">'+esc(K.fullName(s))+'</div>'
-        + '<div class="mt">'+esc(s.session_code)+' · '+K.stateOf(s).label+'</div></div>'
+        /* CAL-03 : la frise porte la nuance en LABEL seul — la barre garde la couleur du
+           lifecycle (pas de pseudo-quatrième état visuel). */
+        + '<div class="mt">'+esc(s.session_code)+' · '+K.stateOf(s).label+(K.isEchue(s)?' — échue':'')+'</div></div>'
         + '<div class="tl-lane"><div class="tl-grid">'+grid+'</div>'+bar+'</div></div>';
     }).join('');
     return '<div class="cd"><div class="tl"><div class="tl-axis">'+mo

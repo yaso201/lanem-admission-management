@@ -73,8 +73,10 @@ import '../styles/calendar.css';
     const cur = draft[f.k] !== undefined ? draft[f.k] : (s[f.k] || '');
     const ro = role === 'admin' || role === 'sm';
     const lock = m === 'locked' || ro;
-    let tag = ui.tag;
-    if(!lock && pol.requires_validation && role === 'dir') tag = 'Validation immédiate';
+    /* CAL-12 (DEC-F) : pas de « Validation immédiate » pour la Direction — le serveur pend
+       TOUJOURS (_propose_changes, aucun embranchement rôle). Le front n'énonce jamais une
+       règle que le serveur ne porte pas (GK9) : même circuit affiché pour tous. */
+    const tag = ui.tag;
     const bound = (m === 'extend' || m === 'postpone') && s[f.k] ? 'Au plus tôt le '+K.fmt(s[f.k])+' — la date actuelle.' : '';
     const minAttr = (type === 'date' && (m === 'extend' || m === 'postpone') && s[f.k]) ? ' min="'+s[f.k]+'"' : '';
     return '<div class="fld'+(lock?' is-locked':'')+'" data-f="'+f.k+'">'
@@ -86,7 +88,8 @@ import '../styles/calendar.css';
       /* `reason` vient du serveur : c'est LE pourquoi. Ne jamais le remplacer par un texte local. */
       + '<div class="why '+ui.whyCls+'">'+K.ico(ui.icon)+'<span>'+esc(pol.reason || '')+'</span></div>'
       + (pend ? '<div class="wait" style="margin-top:var(--space-4)">'+K.ico('i-hourglass')
-          + '<span><b>Proposé, en attente</b> — '+K.fmt(pend.current_value)+' → <b>'+K.fmtDow(pend.proposed_value)+'</b>, par '
+          /* CAL-11 : formateur par TYPE de champ (date/heure/salle) — jamais fmt() sur une heure */
+          + '<span><b>Proposé, en attente</b> — '+esc(K.fmtVal(f.k, pend.current_value))+' → <b>'+esc(K.fmtVal(f.k, pend.proposed_value))+'</b>, par '
           + esc(pend.requested_by||'')+'. La valeur ci-dessus reste celle qui s’applique.</span></div>' : '')
       + '<div class="em-field-error" data-err="'+f.k+'" hidden></div>'
       + '</div></div>';
@@ -130,7 +133,10 @@ import '../styles/calendar.css';
         ? 'Session en <b>brouillon</b> : tout est libre, rien n’est publié, rien n’engage.'
         : 'Session <b>'+st.label.toLowerCase()+'</b> : publié engage. Les changements passent par la Direction.');
     const b = document.getElementById('st-badge');
-    b.className = 'ss '+st.cls; b.innerHTML = '<span class="d"></span>'+st.label;
+    /* CAL-03 : la fiche rend la nuance « échue » comme la liste (source unique K.isEchue) */
+    const ech = K.isEchue(s);
+    b.className = 'ss '+(ech ? 'ss--ech' : st.cls);
+    b.innerHTML = '<span class="d"></span>'+st.label+(ech ? ' — échue' : '');
     document.getElementById('flds').innerHTML = K.DATE_FIELDS.map(f=>fieldHtml(f,'date')).join('');
     document.getElementById('flds2').innerHTML = K.EXAM_FIELDS.map(f=>fieldHtml(f, f.type)).join('');
     document.getElementById('reemit-zone').innerHTML = reemitZone();
@@ -156,35 +162,67 @@ import '../styles/calendar.css';
     const ro = role === 'admin' || role === 'sm';
     document.getElementById('save').disabled = !changed.length || !!errs || ro;
     const needsVal = changed.some(k=>((s.policies||{})[k]||{}).requires_validation);
+    /* CAL-12 (DEC-F) : la Direction suit le CIRCUIT STANDARD — _propose_changes pend toujours,
+       quel que soit l'appelant. Mêmes libellés pour tous ; la vue Direction gagne seulement un
+       lien direct vers la file de validation. */
     document.getElementById('save-lb').textContent = !changed.length ? 'Enregistrer'
-      : (needsVal && role !== 'dir' ? 'Soumettre à la Direction' : needsVal ? 'Valider et appliquer' : 'Enregistrer');
+      : (needsVal ? 'Soumettre à la Direction' : 'Enregistrer');
     document.getElementById('dirty').innerHTML = !changed.length ? 'Aucun changement.'
       : changed.length+' changement'+(changed.length>1?'s':'')+' — '
         + (needsVal
-          ? (role === 'dir' ? 'vous validez directement ; l’effet est immédiat.'
-             : '<b>l’ancienne valeur continuera de s’appliquer</b> jusqu’à validation par la Direction.')
+          ? '<b>l’ancienne valeur continuera de s’appliquer</b> jusqu’à validation par la Direction.'
+            + (role === 'dir' ? ' <a href="/calendrier-validations">Votre proposition ira dans la file — la valider</a>.' : '')
           : 'appliqué sans validation.');
   }
 
-  /* Pré-vol côté écran : confort, pas sécurité. Le refus qui compte est celui du serveur (GK5). */
-  function check(k, v){
-    const pol = (s.policies||{})[k] || {}, m = K.mode(pol);
-    const el = document.querySelector('[data-err="'+k+'"]');
-    let msg = '';
-    if((m === 'extend' || m === 'postpone') && s[k] && v && v < s[k]){
-      msg = (m === 'extend'
-        ? 'Refusé : avancer la clôture priverait des candidats de candidater.'
-        : 'Refusé : avancer l’épreuve priverait du délai d’organisation.')
-        + ' Le serveur refuse ce changement, y compris sur appel direct.';
-    }
-    el.hidden = !msg;
-    el.innerHTML = msg ? K.ico('i-prohibit')+'<span>'+msg+'</span>' : '';
+  /* Pré-vol côté écran : confort, pas sécurité. Le refus qui compte est celui du serveur (GK5).
+     C5 (DEC-D) — MIROIR du serveur, deux familles de règles évaluées sur l'ensemble EFFECTIF
+     (valeurs live + brouillon local), comme _propose_changes le fait côté back :
+       1. monotone (evaluate_change) : avancer clôture/épreuve = refusé ;
+       2. cohérence A07 (calendar_rules.coherence_errors, :86-103) : clôture > ouverture ·
+          épreuve STRICTEMENT > clôture · début > appel (si les deux saisis, gated exam_date).
+     Messages repris VERBATIM du serveur. Toute évolution serveur de ces règles doit se
+     répercuter ICI (et seulement ici : une implémentation, tous les champs). */
+  function _toMin(v){
+    if(!v) return null;
+    const p = String(v).split(':');
+    const n = (+p[0])*60 + (+(p[1]||0));
+    return isNaN(n) ? null : n;
+  }
+  function preflight(){
+    const F = ['opens_on','closes_on','exam_date','exam_call_time','exam_start_time','bac_results_date'];
+    const eff = {};
+    F.forEach(k=>{ eff[k] = draft[k] !== undefined ? draft[k] : (s[k] || ''); });
+    const errs = {};
+    // 1. monotone — uniquement sur un champ effectivement modifié (dates ISO : ordre lexical sûr)
+    ['closes_on','exam_date'].forEach(k=>{
+      const m = K.mode((s.policies||{})[k] || {});
+      if((m === 'extend' || m === 'postpone') && s[k] && draft[k] !== undefined && draft[k] && draft[k] < s[k]){
+        errs[k] = (m === 'extend'
+          ? 'Refusé : avancer la clôture priverait des candidats de candidater.'
+          : 'Refusé : avancer l’épreuve priverait du délai d’organisation.')
+          + ' Le serveur refuse ce changement, y compris sur appel direct.';
+      }
+    });
+    // 2. cohérence A07 (miroir calendar_rules.py:86-103)
+    if(eff.opens_on && eff.closes_on && !(eff.closes_on > eff.opens_on))
+      errs.closes_on = errs.closes_on || 'La clôture des dépôts doit être postérieure à la date d’ouverture.';
+    if(eff.closes_on && eff.exam_date && !(eff.exam_date > eff.closes_on))
+      errs.exam_date = errs.exam_date || 'La date de l’épreuve doit être strictement postérieure à la clôture des dépôts.';
+    const ca = _toMin(eff.exam_call_time), st = _toMin(eff.exam_start_time);
+    if(eff.exam_date && ca !== null && st !== null && !(st > ca))
+      errs.exam_start_time = errs.exam_start_time || 'L’heure de début des épreuves doit être postérieure à l’heure d’appel.';
+    document.querySelectorAll('[data-err]').forEach(el=>{
+      const msg = errs[el.dataset.err] || '';
+      el.hidden = !msg;
+      el.innerHTML = msg ? K.ico('i-prohibit')+'<span>'+msg+'</span>' : '';
+    });
   }
 
   document.querySelector('.edit-grid').addEventListener('input', e=>{
     const i = e.target.closest('[data-in]'); if(!i) return;
     draft[i.dataset.in] = i.value;
-    check(i.dataset.in, i.value);
+    preflight();
     document.getElementById('reemit-zone').innerHTML = reemitZone();
     dirtyState();
   });

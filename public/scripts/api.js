@@ -407,8 +407,12 @@
 
     /* ---- GESTION-CALENDRIER : duplication (le Responsable saisit) ---- */
     calendarDuplicatePreview(sessions, shiftDays, academicYear) {
-      return request('/api/method/admission.api.calendar.duplicate_preview',
-        { params: { sessions: JSON.stringify(sessions), shift_days: shiftDays, academic_year: academicYear || null } });
+      // CAL-10 : params CONDITIONNELS (patron calendarList) — URLSearchParams sérialise null en
+      // chaîne "null", truthy côté serveur → l'aperçu calculait AA "null" + codes -copy alors
+      // que la création (POST, null JSON réel) est saine : l'aperçu mentait sur la création.
+      const params = { sessions: JSON.stringify(sessions), shift_days: shiftDays };
+      if (academicYear) params.academic_year = academicYear;
+      return request('/api/method/admission.api.calendar.duplicate_preview', { params });
     },
     calendarDuplicateCreate(sessions, shiftDays, academicYear, codeOverrides) {
       return request('/api/method/admission.api.calendar.duplicate_create',
