@@ -52,8 +52,9 @@ import '../styles/calendar.css';
       <div class="side-card" id="circ"></div>
       <div class="side-card">
         <div class="side-t">La source des règles</div>
-        <p style="font-size:var(--text-xs);color:var(--text-secondary);line-height:var(--leading-relaxed);margin-bottom:var(--space-4)">Cet écran ne décide rien : il rend la politique renvoyée par <code>calendar_rules.field_policies</code>, la même table que le contrôle serveur. Deux implémentations divergeraient.</p>
-        <div class="rules-src" id="src"></div>
+        <p style="font-size:var(--text-xs);color:var(--text-secondary);line-height:var(--leading-relaxed);margin-bottom:var(--space-4)">Ces règles viennent du serveur — la même table que le contrôle à l’enregistrement. Cet écran ne décide rien : il les restitue.</p>
+        <div id="rules"></div>
+        <div id="src-dev"></div>
       </div>
     </aside>
   </div>
@@ -113,6 +114,17 @@ import '../styles/calendar.css';
         }).join('<br>');
   }
 
+  /* DEC-C : restitution LISIBLE — une ligne par champ, dérivée à 100 % de la structure servie
+     (label + K.ruleWord(policy) + réémission). `reason` n'est PAS répété ici : il est déjà
+     affiché mot à mot sous chaque champ. Le dump brut (srcHtml) n'existe que sur hôte dev. */
+  function rulesHtml(){
+    return Object.keys(s.policies||{}).map(k=>{ const p = s.policies[k];
+      return '<div class="kv"><span class="k">'+esc(p.label||k)+'</span>'
+        + '<span class="v" style="font-size:var(--text-xs);font-weight:600">'+K.ruleWord(p)
+        + (p.triggers_reissue ? ' · réémet les convocations' : '')+'</span></div>';
+    }).join('');
+  }
+
   function reemitZone(){
     const examTouched = ['exam_date','exam_call_time','exam_start_time','exam_room']
       .some(k=>draft[k] !== undefined && String(draft[k]) !== String(s[k] || ''));
@@ -127,11 +139,16 @@ import '../styles/calendar.css';
   function render(){
     const st = K.stateOf(s);
     document.getElementById('ttl').textContent = K.fullName(s);
+    /* DEC-B : le circuit est annoncé EN TÊTE d'édition (l'entrée s'appelle « Modifier ») ;
+       la Direction garde le lien vers la file (FIX-1, zone dirty). */
     document.getElementById('sub').innerHTML = (role === 'admin' || role === 'sm')
       ? 'Consultation. Aucune date n’est modifiable depuis ce rôle.'
       : (s.lifecycle_state === 'Draft'
         ? 'Session en <b>brouillon</b> : tout est libre, rien n’est publié, rien n’engage.'
-        : 'Session <b>'+st.label.toLowerCase()+'</b> : publié engage. Les changements passent par la Direction.');
+        : 'Session <b>'+st.label.toLowerCase()+'</b> : publié engage. '
+          + (role === 'dir'
+            ? 'Les changements de date passent par la file de validation.'
+            : '<b>Vos changements seront soumis à la validation de la Direction.</b>'));
     const b = document.getElementById('st-badge');
     /* CAL-03 : la fiche rend la nuance « échue » comme la liste (source unique K.isEchue) */
     const ech = K.isEchue(s);
@@ -148,7 +165,10 @@ import '../styles/calendar.css';
     document.getElementById('i-pub').innerHTML = st.pub
       ? '<span style="color:var(--success-700)">oui</span>' : '<span style="color:var(--text-tertiary)">non</span>';
     document.getElementById('circ').innerHTML = circuit();
-    document.getElementById('src').innerHTML = srcHtml();
+    document.getElementById('rules').innerHTML = rulesHtml();
+    document.getElementById('src-dev').innerHTML = K.isDevHost()
+      ? '<details class="dev-details"><summary>Détails techniques (dev)</summary><div class="rules-src">'+srcHtml()+'</div></details>'
+      : '';
     dirtyState();
   }
 

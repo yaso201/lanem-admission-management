@@ -99,7 +99,9 @@ import '../styles/calendar.css';
       a = '<a class="em-btn em-btn--secondary em-btn--sm" href="'+editUrl+'">'+K.ico('i-pencil')+'Modifier</a>'
         + (s.can_delete ? '<button type="button" class="em-btn em-btn--ghost em-btn--sm" data-del="'+esc(s.name)+'" title="Supprimer ce brouillon">'+K.ico('i-trash')+'</button>' : '');
     } else {
-      a = '<a class="em-btn em-btn--ghost em-btn--sm" href="'+editUrl+'">'+K.ico('i-pencil')+'Proposer</a>';
+      /* DEC-B : l'entrée en édition = verbe générique « Modifier » (patron Edit/propose) ;
+         le circuit est annoncé dans la page d'édition, la soumission le porte. */
+      a = '<a class="em-btn em-btn--ghost em-btn--sm" href="'+editUrl+'">'+K.ico('i-pencil')+'Modifier</a>';
     }
     return a + dup;
   }
@@ -189,6 +191,12 @@ import '../styles/calendar.css';
     syncSel();
   }
 
+  function findSession(name){
+    let f = null;
+    ((data && data.groups) || []).forEach(g=>g.sessions.forEach(s=>{ if(s.name === name) f = s; }));
+    return f;
+  }
+
   function syncSel(){
     const bar = document.getElementById('selbar');
     bar.hidden = sel.size === 0;
@@ -222,8 +230,15 @@ import '../styles/calendar.css';
     }
     const o = e.target.closest('[data-open]');
     if(o){
-      UI.emModal({ title:'Ouvrir cette session ?', body:'Elle deviendra visible du catalogue candidat et les dépôts seront possibles. Acte de la Direction.',
-        submitLabel:'Ouvrir la session', onSubmit: async ()=>{ await API.calendarOpenSession(o.dataset.open); UI.emToast('Session ouverte.','success'); load(); } });
+      /* DEC-A : modale NOMMÉE — l'objet exact dans le titre, la conséquence que le SERVEUR
+         applique dans le corps (publie · structure et ouverture figées · visible candidat),
+         le verbe + l'objet sur le bouton. Jamais « OK ». Gating inchangé (dir + Draft + !pending). */
+      const s = findSession(o.dataset.open) || { session_code: o.dataset.open };
+      UI.emModal({ title: 'Ouvrir '+s.session_code+' ?',
+        body: (s.label ? K.fullName(s)+' — ' : '')
+          + 'ouvrir publie la session : la structure et la date d’ouverture sont figées, elle devient visible du catalogue candidat et les dépôts s’ouvrent. Acte de la Direction.',
+        submitLabel: 'Ouvrir '+s.session_code,
+        onSubmit: async ()=>{ await API.calendarOpenSession(o.dataset.open); UI.emToast('Session ouverte.','success'); load(); } });
     }
   });
 

@@ -71,6 +71,25 @@
     free: { tag: 'Sans validation', tagCls: 'fld-tag--free', icon: 'i-checkcircle', whyCls: 'why--free' }
   };
 
+  /* DEC-C : mot d'état d'un champ pour le panneau des règles — mapping de PRÉSENTATION pur
+     (patron MODE_UI), 100 % dérivé de la structure servie (editable/constraint/validation/
+     reissue). AUCUNE règle écrite ici : si le serveur change une policy, le panneau suit. */
+  function ruleWord(p) {
+    const m = mode(p);
+    if (m === 'locked') return 'Verrouillé';
+    if (m === 'extend') return 'Prolongeable · validation Direction';
+    if (m === 'postpone') return 'Reportable · validation Direction';
+    return (p && p.requires_validation ? 'Modifiable · validation Direction' : 'Libre, sans validation');
+  }
+
+  /* DEC-C : hôtes de DÉVELOPPEMENT — le bloc « Détails techniques » n'est RENDU que là
+     (pas masqué : absent du DOM en prod). Hygiène UX, pas sécurité : les policies sont déjà
+     servies au client par l'API. Un futur env recette dédié s'ajoute ICI, nulle part ailleurs. */
+  function isDevHost() {
+    const h = (typeof location !== 'undefined' && location.hostname) || '';
+    return h === 'localhost' || h === '127.0.0.1' || h.endsWith('.localhost');
+  }
+
   function fullName(s) { return (s.programme_label || s.programme_code || '') + ' — ' + (s.label || s.session_code); }
   function pendingOf(s, field) { return (s.pending || []).filter(function (p) { return p.change_field === field; })[0]; }
   function stateOf(s) { return STATE[s.lifecycle_state] || STATE.Draft; }
@@ -89,6 +108,7 @@
     MOIS: MOIS, JOURS: JOURS, STATE: STATE, DATE_FIELDS: DATE_FIELDS, EXAM_FIELDS: EXAM_FIELDS, MODE_UI: MODE_UI,
     toD: toD, toIso: toIso, fmt: fmt, dow: dow, fmtDow: fmtDow, shift: shift, days: days,
     fmtTime: fmtTime, fmtVal: fmtVal, isEchue: isEchue,
+    ruleWord: ruleWord, isDevHost: isDevHost,
     mode: mode, fullName: fullName, pendingOf: pendingOf, stateOf: stateOf, badge: badge, ico: ico
   };
 })();
