@@ -42,6 +42,7 @@ import Layout from '../layouts/Layout.astro';
 
   <div id="imp-host"></div>
   <div id="roster"></div>
+  <div id="nt-errors"></div>
   <div id="save-result"></div>
 
   <div class="savebar" id="savebar" hidden>
@@ -61,7 +62,13 @@ import Layout from '../layouts/Layout.astro';
   .nt-sel,.nt-in{font:inherit;padding:9px 11px;border:1px solid var(--border,#d9d9d9);border-radius:9px;background:var(--surface-paper,#fff);color:var(--text-primary,#171717)}
   .nt-sel{width:100%}
   .nt-in{width:70px;text-align:center}
+  /* A11 : pas de flèches (le correcteur frappe, il n'incrémente pas) — clavier numérique conservé */
+  .nt-in::-webkit-outer-spin-button,.nt-in::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .nt-in{-moz-appearance:textfield;appearance:textfield}
   .nt-in:focus,.nt-sel:focus{outline:2px solid var(--accent,#2b6cb0);outline-offset:1px;border-color:transparent}
+  .nt-in.nt-invalid{border-color:#c0392b;background:#fff5f5}
+  .nt-in.nt-invalid:focus{outline-color:#c0392b}
+  #btn-save:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
   .nt-coef{display:flex;gap:var(--space-4);flex-wrap:wrap;align-items:flex-end}
   .nt-coef .cf{display:flex;flex-direction:column;gap:6px}
   .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--space-4)}
@@ -156,7 +163,7 @@ import Layout from '../layouts/Layout.astro';
       '<th>Absent</th><th>Moyenne / signal</th></tr></thead><tbody>';
     cs.forEach((c, i) => {
       const v = c.valeurs || {};
-      h += '<tr class="nt-row' + (c.absent ? ' is-abs' : '') + '" data-id="' + esc(c.dossier_id) + '">' +
+      h += '<tr class="nt-row' + (c.absent ? ' is-abs' : '') + '" data-id="' + esc(c.dossier_id) + '" data-nom="' + esc(c.nom) + '">' +
         '<td>' + esc(c.numero_convocation || '—') + '</td>' +
         '<td>' + esc(c.nom) + (c.validees ? ' <span class="em-badge em-badge--success em-badge--sm">validées</span>' : '') + '</td>' +
         SUBJECTS.map(s => '<td style="text-align:center"><input class="nt-in" type="number" min="0" max="20" step="0.25" data-k="' + esc(s.key) + '" value="' +
@@ -168,9 +175,53 @@ import Layout from '../layouts/Layout.astro';
     $('roster').innerHTML = h;
     $('savebar').hidden = false;
     $('btn-validate').hidden = !(CANVALIDATE && cs.length);
+    const inputs = Array.from($('roster').querySelectorAll('input.nt-in'));
+    inputs.forEach((inp, i) => {
+      inp.addEventListener('input', validateRoster);
+      inp.addEventListener('keydown', e => {   // A11 : Entrée passe au champ suivant (saisie au clavier)
+        if(e.key === 'Enter'){ e.preventDefault(); (inputs[i + 1] || $('btn-save')).focus(); }
+      });
+    });
     $('roster').querySelectorAll('.nt-absck').forEach(ck => ck.addEventListener('change', e => {
       e.target.closest('.nt-row').classList.toggle('is-abs', e.target.checked);
+      validateRoster();
     }));
+    validateRoster();
+  }
+
+  function noteError(inp){
+    const v = inp.value.trim();
+    if(v === '') return null;
+    const n = Number(v.replace(',', '.'));
+    if(!isFinite(n) || n < 0 || n > 20){
+      return { label: (SUBJECTS.find(s => s.key === inp.dataset.k) || {}).label || inp.dataset.k, value: v };
+    }
+    return null;
+  }
+
+  // A10 — validation IMMÉDIATE : champ hors 0-20 signalé à la frappe, épreuve + valeur nommées,
+  // bouton d'enregistrement inopérant tant qu'une anomalie subsiste. (La garde serveur reste la
+  // protection réelle ; ceci évite d'y arriver.)
+  function validateRoster(){
+    const errs = [];
+    $('roster').querySelectorAll('.nt-row').forEach(tr => {
+      const abs = tr.classList.contains('is-abs');
+      tr.querySelectorAll('input.nt-in').forEach(inp => {
+        const e = abs ? null : noteError(inp);
+        inp.classList.toggle('nt-invalid', !!e);
+        if(e){
+          inp.title = e.label + ' : ' + e.value + ' — la note doit être comprise entre 0 et 20';
+          errs.push({ nom: tr.dataset.nom || tr.dataset.id, label: e.label, value: e.value });
+        } else { inp.removeAttribute('title'); }
+      });
+    });
+    $('nt-errors').innerHTML = errs.length
+      ? '<div class="em-alert em-alert--warning" style="margin-top:var(--space-4)"><span class="em-alert-icon"><svg class="ico"><use href="#i-warning"/></svg></span>' +
+        '<div class="em-alert-body"><span class="em-alert-text"><b>' + errs.length + ' note(s) hors barème (0–20)</b> — corrigez avant d\'enregistrer :</span>' +
+        '<ul class="imp-probs">' + errs.map(e => '<li>' + esc(e.nom + ' · ' + e.label + ' : ' + e.value + ' — la note doit être comprise entre 0 et 20') + '</li>').join('') + '</ul></div></div>'
+      : '';
+    $('btn-save').disabled = errs.length > 0;
+    return errs.length === 0;
   }
 
   async function validateSession(){
@@ -217,6 +268,7 @@ import Layout from '../layouts/Layout.astro';
   }
 
   async function save(){
+    if(!validateRoster()){ UI.emToast('Des notes sont hors barème (0–20) — corrigez-les d\'abord.', 'error'); return; }
     const rows = collectRows();
     if(!rows.length){ UI.emToast('Aucune note à enregistrer.', 'error'); return; }
     try { const res = await API.notesSaisirMasse(SESSION, rows); reportResult(res); await load(SESSION); }
