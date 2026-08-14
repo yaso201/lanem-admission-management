@@ -63,7 +63,7 @@ import '../styles/calendar.css';
 (function(){
   const API = window.EmelaAPI, UI = window.EmelaUI, K = window.EmelaCal, esc = UI.esc;
   const name = new URLSearchParams(location.search).get('s');
-  const unwrap = r => r.message ? r.message.data : r.data;
+  const unwrap = r => (r && r.ok!==undefined && r.data!==undefined) ? r.data : r;
   let s = null, role = 'resp', draft = {};
 
   function fieldHtml(f, type){

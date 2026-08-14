@@ -198,7 +198,7 @@ import '../styles/calendar.css';
   }
 
   async function load(){
-    try{ const r = await API.calendarList(); data = r.message ? r.message.data : r.data; render(); }
+    try{ const r = await API.calendarList(); data = (r && r.ok!==undefined && r.data!==undefined) ? r.data : r; render(); }
     catch(e){ document.getElementById('groups').innerHTML = '<div class="em-error-state"><div class="em-empty-title">Calendrier indisponible</div></div>'; }
   }
 

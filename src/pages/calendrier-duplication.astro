@@ -128,7 +128,7 @@ import '../styles/calendar.css';
   const sel = new Set(preset ? preset.split(',') : []);
   let days = null, cal = null, plan = null, byName = {};
 
-  const unwrap = r => r.message ? r.message.data : r.data;
+  const unwrap = r => (r && r.ok!==undefined && r.data!==undefined) ? r.data : r;
 
   function syncShiftControls(){
     document.getElementById('days').value = days;
