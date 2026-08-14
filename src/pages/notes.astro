@@ -76,9 +76,9 @@ import Layout from '../layouts/Layout.astro';
 <script is:inline>
 (function(){
   const API = window.EmelaAPI, UI = window.EmelaUI, esc = UI.esc;
-  let SUBJECTS = [], SESSION = null, DATA = null, CANSETCOEF = false, CANVALIDATE = false;
+  let SUBJECTS = [], SESSION = null, DATA = null, CANSETCOEF = false, CANVALIDATE = false, COEF_EDITING = false;
   const $ = id => document.getElementById(id);
-  const coefSet = () => SUBJECTS.length && SUBJECTS.every(s => Number((DATA.coefficients||{})[s.key]) > 0);
+  const coefSet = () => !!(DATA && DATA.coefficients_set);
 
   function moyCell(c){
     if(c.absent) return '<span class="em-badge em-badge--neutral em-badge--sm">Absent(e)</span>';
@@ -92,30 +92,56 @@ import Layout from '../layouts/Layout.astro';
   }
 
   function renderCoef(){
-    const coefs = DATA.coefficients || {}, locked = DATA.coefficients_verrouilles, set = coefSet();
+    const coefs = DATA.coefficients || {}, isSet = !!DATA.coefficients_set, frozen = !!DATA.coefficients_frozen;
     $('coef-card').hidden = false;
+    // Machine à états (A09) : jamais posé → saisissable · posé sans note → lecture + Modifier ·
+    // modification demandée → rouvert + confirmation · une note → figé définitivement.
+    const editable = CANSETCOEF && !frozen && (!isSet || COEF_EDITING);
     const st = $('coef-state');
-    st.textContent = locked ? 'verrouillés' : (set ? 'posés' : 'à poser');
-    st.className = 'em-badge em-badge--' + (locked ? 'neutral' : (set ? 'success' : 'warning')) + ' em-badge--sm';
-    const editable = CANSETCOEF && !locked;
-    $('coef-help').textContent = locked
-      ? 'Une note a déjà été saisie : la pondération est figée (on ne change pas les coefficients une fois la correction commencée).'
-      : (CANSETCOEF ? 'Posez la pondération de chaque épreuve avant de saisir les notes.'
-                    : 'La pondération est définie par le Responsable.');
+    st.textContent = frozen ? 'verrouillés' : (isSet ? 'posés' : 'à poser');
+    st.className = 'em-badge em-badge--' + (frozen ? 'neutral' : (isSet ? 'success' : 'warning')) + ' em-badge--sm';
+    $('coef-help').textContent = frozen
+      ? 'Une note a déjà été saisie : la pondération est figée définitivement (la modifier recalculerait la moyenne de tous les candidats).'
+      : (!CANSETCOEF ? 'La pondération est définie par le Responsable.'
+         : (isSet ? (COEF_EDITING ? 'Modifiez la pondération, puis confirmez.'
+                                  : 'Pondération posée. « Modifier » pour la changer (tant qu\'aucune note n\'est saisie).')
+                  : 'Posez la pondération de chaque épreuve avant de saisir les notes.'));
     let h = SUBJECTS.map(s => '<div class="cf"><label class="nt-lbl">' + esc(s.label) + '</label>' +
       '<input class="nt-in coef-in" data-k="' + esc(s.key) + '" type="number" min="0.5" step="0.5" value="' +
       (coefs[s.key] != null ? esc(String(coefs[s.key])) : '') + '"' + (editable ? '' : ' disabled') + '></div>').join('');
-    if(editable) h += '<button type="button" class="em-btn em-btn--primary em-btn--sm" id="coef-save">Enregistrer les coefficients</button>';
+    if(editable){
+      h += '<button type="button" class="em-btn em-btn--primary em-btn--sm" id="coef-save">Enregistrer les coefficients</button>';
+      if(isSet) h += '<button type="button" class="em-btn em-btn--ghost em-btn--sm" id="coef-cancel">Annuler</button>';
+    } else if(CANSETCOEF && isSet && !frozen){
+      h += '<button type="button" class="em-btn em-btn--secondary em-btn--sm" id="coef-modify"><svg class="ico-sm"><use href="#i-pencil"/></svg>Modifier</button>';
+    }
     $('coef-fields').innerHTML = h;
-    if(editable) $('coef-save').addEventListener('click', saveCoef);
-    $('signal-note').hidden = !set;
+    if($('coef-save')) $('coef-save').addEventListener('click', saveCoef);
+    if($('coef-modify')) $('coef-modify').addEventListener('click', () => { COEF_EDITING = true; renderCoef(); });
+    if($('coef-cancel')) $('coef-cancel').addEventListener('click', () => { COEF_EDITING = false; renderCoef(); });
+    $('signal-note').hidden = !isSet;
   }
 
-  async function saveCoef(){
+  async function doSaveCoef(){
     const coefs = {};
     $('coef-fields').querySelectorAll('.coef-in').forEach(inp => { coefs[inp.dataset.k] = inp.value; });
-    try { await API.notesSetCoefficients(SESSION, coefs); UI.emToast('Coefficients enregistrés.', 'success'); await load(SESSION); }
-    catch(e){ UI.emToast(e.message, 'error'); }
+    await API.notesSetCoefficients(SESSION, coefs);
+    COEF_EDITING = false;
+    UI.emToast('Coefficients enregistrés.', 'success');
+    await load(SESSION);
+  }
+
+  function saveCoef(){
+    if(DATA.coefficients_set){   // A09 : modifier une pondération EXISTANTE = acte explicite (confirmation)
+      UI.emModal({
+        title: 'Modifier la pondération',
+        lead: 'Modifier la pondération recalculera la moyenne de tous les candidats de cette session. Confirmez-vous ?',
+        fields: [], submitLabel: 'Modifier et enregistrer',
+        onSubmit: async () => { await doSaveCoef(); }
+      });
+    } else {
+      doSaveCoef().catch(e => UI.emToast(e.message, 'error'));   // 1ʳᵉ pose : direct
+    }
   }
 
   function renderRoster(){
@@ -237,6 +263,7 @@ import Layout from '../layouts/Layout.astro';
 
   async function load(session){
     SESSION = session;
+    COEF_EDITING = false;
     ['imp-host', 'save-result', 'roster'].forEach(id => $(id).innerHTML = '');
     $('coef-card').hidden = true; $('savebar').hidden = true; $('signal-note').hidden = true;
     $('btn-export').hidden = true; $('btn-import-l').hidden = true;
