@@ -1,0 +1,224 @@
+---
+/* GESTION-CALENDRIER — écran 3/4 : ÉDITION DES DATES D'UNE SESSION
+   À DÉPOSER dans : fronts/apps/management/src/pages/calendrier-session.astro
+   Maquette : management/calendrier-session.html
+   Règle de l'écran : chaque champ affiche `policies[champ].reason` — un champ grisé sans
+   explication est un défaut. Le front ne décide RIEN ; il rend la politique serveur. */
+import Layout from '../layouts/Layout.astro';
+import '../styles/calendar.css';
+---
+<Layout title="Dates d’une session — emela management" role="resp" page="calendrier" shared={true}>
+<script is:inline src="/scripts/calendar-view.js"></script>
+
+<main class="page" id="main-content" style="max-width:1180px">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title" id="ttl">Dates de la session</h1>
+      <p class="page-sub" id="sub"></p>
+    </div>
+    <a class="em-btn em-btn--ghost em-btn--sm" href="/calendrier">Retour au calendrier</a>
+  </div>
+
+  <div class="edit-grid">
+    <div>
+      <div class="cd">
+        <div class="cd-head"><span class="cd-title">Les quatre dates</span><span class="ss" id="st-badge"></span></div>
+        <div id="flds"><div style="padding:var(--space-6)"><div class="em-skeleton em-skeleton--text"></div></div></div>
+      </div>
+      <div class="cd">
+        <div class="cd-head"><span class="cd-title">Jour d’épreuve</span></div>
+        <div id="flds2"></div>
+      </div>
+      <div id="reemit-zone"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-5);margin-top:var(--space-6)">
+        <span style="font-size:var(--text-xs);color:var(--text-secondary)" id="dirty"></span>
+        <div style="display:flex;gap:var(--space-3)">
+          <button type="button" class="em-btn em-btn--secondary" id="reset">Annuler</button>
+          <button type="button" class="em-btn em-btn--primary" id="save" disabled><span id="save-lb">Enregistrer</span></button>
+        </div>
+      </div>
+    </div>
+
+    <aside>
+      <div class="side-card">
+        <div class="side-t">Session</div>
+        <div class="kv"><span class="k">Code</span><span class="v" id="i-code" style="font-family:var(--font-mono);font-size:var(--text-xs)">—</span></div>
+        <div class="kv"><span class="k">Programme</span><span class="v" id="i-prog" style="font-weight:500;font-size:var(--text-xs)">—</span></div>
+        <div class="kv"><span class="k">Année académique</span><span class="v" id="i-aa">—</span></div>
+        <div class="kv"><span class="k">Dossiers rattachés</span><span class="v" id="i-cand">—</span></div>
+        <div class="kv"><span class="k">Convoqués</span><span class="v" id="i-conv">—</span></div>
+        <div class="kv"><span class="k">Visible du candidat</span><span class="v" id="i-pub">—</span></div>
+      </div>
+      <div class="side-card" id="circ"></div>
+      <div class="side-card">
+        <div class="side-t">La source des règles</div>
+        <p style="font-size:var(--text-xs);color:var(--text-secondary);line-height:var(--leading-relaxed);margin-bottom:var(--space-4)">Cet écran ne décide rien : il rend la politique renvoyée par <code>calendar_rules.field_policies</code>, la même table que le contrôle serveur. Deux implémentations divergeraient.</p>
+        <div class="rules-src" id="src"></div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script is:inline>
+(function(){
+  const API = window.EmelaAPI, UI = window.EmelaUI, K = window.EmelaCal, esc = UI.esc;
+  const name = new URLSearchParams(location.search).get('s');
+  const unwrap = r => r.message ? r.message.data : r.data;
+  let s = null, role = 'resp', draft = {};
+
+  function fieldHtml(f, type){
+    const pol = (s.policies||{})[f.k] || {};
+    const m = K.mode(pol), ui = K.MODE_UI[m];
+    const pend = K.pendingOf(s, f.k);
+    const cur = draft[f.k] !== undefined ? draft[f.k] : (s[f.k] || '');
+    const ro = role === 'admin' || role === 'sm';
+    const lock = m === 'locked' || ro;
+    let tag = ui.tag;
+    if(!lock && pol.requires_validation && role === 'dir') tag = 'Validation immédiate';
+    const bound = (m === 'extend' || m === 'postpone') && s[f.k] ? 'Au plus tôt le '+K.fmt(s[f.k])+' — la date actuelle.' : '';
+    const minAttr = (type === 'date' && (m === 'extend' || m === 'postpone') && s[f.k]) ? ' min="'+s[f.k]+'"' : '';
+    return '<div class="fld'+(lock?' is-locked':'')+'" data-f="'+f.k+'">'
+      + '<div class="fld-lab"><label for="in-'+f.k+'">'+f.label+'</label><span class="k">'+f.k+'</span></div>'
+      + '<div class="fld-ctl">'
+      + '<input class="em-input" id="in-'+f.k+'" type="'+type+'" value="'+esc(String(cur))+'"'+minAttr+(lock?' disabled':'')+' data-in="'+f.k+'" />'
+      + '<span class="fld-tag '+(ro?'fld-tag--lock':ui.tagCls)+'">'+(ro?'Lecture seule':tag)+'</span>'
+      + (bound && !lock ? '<div class="em-field-help" style="margin-top:var(--space-3)">'+bound+'</div>' : '')
+      /* `reason` vient du serveur : c'est LE pourquoi. Ne jamais le remplacer par un texte local. */
+      + '<div class="why '+ui.whyCls+'">'+K.ico(ui.icon)+'<span>'+esc(pol.reason || '')+'</span></div>'
+      + (pend ? '<div class="wait" style="margin-top:var(--space-4)">'+K.ico('i-hourglass')
+          + '<span><b>Proposé, en attente</b> — '+K.fmt(pend.current_value)+' → <b>'+K.fmtDow(pend.proposed_value)+'</b>, par '
+          + esc(pend.requested_by||'')+'. La valeur ci-dessus reste celle qui s’applique.</span></div>' : '')
+      + '<div class="em-field-error" data-err="'+f.k+'" hidden></div>'
+      + '</div></div>';
+  }
+
+  function circuit(){
+    const rows = s.lifecycle_state === 'Draft'
+      ? [['Modifier les dates','Aucune validation','free'],['Supprimer la session','Aucune validation','free'],['Ouvrir la session','Validation Direction','val']]
+      : [['Prolonger la clôture','Validation Direction','val'],['Reporter l’épreuve','Validation Direction + réémission','warn'],
+         ['Avancer clôture ou épreuve','Refusé par le serveur','ko'],['Résultats du bac','Aucune validation','free']];
+    return '<div class="side-t">Le circuit pour cet état</div>'
+      + rows.map(r=>'<div class="kv"><span class="k">'+r[0]+'</span><span class="v" style="font-size:var(--text-xs);font-weight:600;color:'
+        + (r[2]==='free'?'var(--success-700)':r[2]==='ko'?'var(--error-700)':r[2]==='warn'?'var(--warning-700)':'var(--ink-800)')+'">'+r[1]+'</span></div>').join('');
+  }
+
+  function srcHtml(){
+    return '<span class="c">// field_policies · lifecycle_state = '+esc(s.lifecycle_state)+'</span><br>'
+      + Object.keys(s.policies||{}).map(k=>{ const p = s.policies[k];
+          return '<span class="k">'+esc(k)+'</span> : { editable: '+p.editable+', validation: '+p.requires_validation
+            + ', reissue: '+p.triggers_reissue+', constraint: <span class="s">"'+(p.constraint||'none')+'"</span> }';
+        }).join('<br>');
+  }
+
+  function reemitZone(){
+    const examTouched = ['exam_date','exam_call_time','exam_start_time','exam_room']
+      .some(k=>draft[k] !== undefined && String(draft[k]) !== String(s[k] || ''));
+    if(!examTouched || s.lifecycle_state === 'Draft' || !s.convocation_count) return '';
+    return '<div class="em-alert em-alert--warning" style="margin-top:var(--space-5)">'
+      + '<span class="em-alert-icon">'+K.ico('i-mail')+'</span><div class="em-alert-body">'
+      + '<div class="em-alert-title">La validation réémettra '+s.convocation_count+' convocations</div>'
+      + '<span class="em-alert-text">La date, l’heure et la salle figurent sur la convocation. Sans réémission, des candidats se présenteraient le mauvais jour. La Direction en sera avertie avant de valider.</span>'
+      + '</div></div>';
+  }
+
+  function render(){
+    const st = K.stateOf(s);
+    document.getElementById('ttl').textContent = K.fullName(s);
+    document.getElementById('sub').innerHTML = (role === 'admin' || role === 'sm')
+      ? 'Consultation. Aucune date n’est modifiable depuis ce rôle.'
+      : (s.lifecycle_state === 'Draft'
+        ? 'Session en <b>brouillon</b> : tout est libre, rien n’est publié, rien n’engage.'
+        : 'Session <b>'+st.label.toLowerCase()+'</b> : publié engage. Les changements passent par la Direction.');
+    const b = document.getElementById('st-badge');
+    b.className = 'ss '+st.cls; b.innerHTML = '<span class="d"></span>'+st.label;
+    document.getElementById('flds').innerHTML = K.DATE_FIELDS.map(f=>fieldHtml(f,'date')).join('');
+    document.getElementById('flds2').innerHTML = K.EXAM_FIELDS.map(f=>fieldHtml(f, f.type)).join('');
+    document.getElementById('reemit-zone').innerHTML = reemitZone();
+    document.getElementById('i-code').textContent = s.session_code;
+    document.getElementById('i-prog').textContent = s.programme_label || s.programme_code || '—';
+    document.getElementById('i-aa').textContent = s.academic_year || '—';
+    document.getElementById('i-cand').textContent = s.applicant_count;
+    document.getElementById('i-conv').textContent = s.convocation_count;
+    document.getElementById('i-pub').innerHTML = st.pub
+      ? '<span style="color:var(--success-700)">oui</span>' : '<span style="color:var(--text-tertiary)">non</span>';
+    document.getElementById('circ').innerHTML = circuit();
+    document.getElementById('src').innerHTML = srcHtml();
+    dirtyState();
+  }
+
+  function changedKeys(){
+    return Object.keys(draft).filter(k=>String(draft[k]) !== String(s[k] || ''));
+  }
+
+  function dirtyState(){
+    const changed = changedKeys();
+    const errs = document.querySelectorAll('[data-err]:not([hidden])').length;
+    const ro = role === 'admin' || role === 'sm';
+    document.getElementById('save').disabled = !changed.length || !!errs || ro;
+    const needsVal = changed.some(k=>((s.policies||{})[k]||{}).requires_validation);
+    document.getElementById('save-lb').textContent = !changed.length ? 'Enregistrer'
+      : (needsVal && role !== 'dir' ? 'Soumettre à la Direction' : needsVal ? 'Valider et appliquer' : 'Enregistrer');
+    document.getElementById('dirty').innerHTML = !changed.length ? 'Aucun changement.'
+      : changed.length+' changement'+(changed.length>1?'s':'')+' — '
+        + (needsVal
+          ? (role === 'dir' ? 'vous validez directement ; l’effet est immédiat.'
+             : '<b>l’ancienne valeur continuera de s’appliquer</b> jusqu’à validation par la Direction.')
+          : 'appliqué sans validation.');
+  }
+
+  /* Pré-vol côté écran : confort, pas sécurité. Le refus qui compte est celui du serveur (GK5). */
+  function check(k, v){
+    const pol = (s.policies||{})[k] || {}, m = K.mode(pol);
+    const el = document.querySelector('[data-err="'+k+'"]');
+    let msg = '';
+    if((m === 'extend' || m === 'postpone') && s[k] && v && v < s[k]){
+      msg = (m === 'extend'
+        ? 'Refusé : avancer la clôture priverait des candidats de candidater.'
+        : 'Refusé : avancer l’épreuve priverait du délai d’organisation.')
+        + ' Le serveur refuse ce changement, y compris sur appel direct.';
+    }
+    el.hidden = !msg;
+    el.innerHTML = msg ? K.ico('i-prohibit')+'<span>'+msg+'</span>' : '';
+  }
+
+  document.querySelector('.edit-grid').addEventListener('input', e=>{
+    const i = e.target.closest('[data-in]'); if(!i) return;
+    draft[i.dataset.in] = i.value;
+    check(i.dataset.in, i.value);
+    document.getElementById('reemit-zone').innerHTML = reemitZone();
+    dirtyState();
+  });
+  document.getElementById('reset').addEventListener('click', ()=>{ draft = {}; render(); });
+
+  document.getElementById('save').addEventListener('click', async e=>{
+    const btn = e.currentTarget, changed = changedKeys();
+    const payload = {}; changed.forEach(k=>{ payload[k] = draft[k]; });
+    btn.disabled = true;
+    try{
+      if(s.lifecycle_state === 'Draft'){
+        await API.calendarUpdateDraft(s.name, payload);
+        UI.emToast('Brouillon enregistré.', 'success');
+      } else {
+        const res = unwrap(await API.calendarProposeChanges(s.name, payload));
+        UI.emToast(res.pending.length
+          ? 'Proposé à la Direction. En attendant, l’ancienne valeur s’applique.'
+          : 'Enregistré.', 'success');
+      }
+      draft = {}; await load();
+    } catch(err){
+      /* Le serveur refuse (avancer, structure figée) : on affiche SON motif, tel quel. */
+      UI.emToast(err && err.message ? err.message : 'Modification refusée par le serveur.', 'error');
+      btn.disabled = false;
+    }
+  });
+
+  async function load(){
+    s = unwrap(await API.calendarSession(name));
+    render();
+  }
+
+  window.onEmelaRole = function(r){ role = r; draft = {}; if(s) render(); };
+  if(!name){ location.replace('/calendrier'); } else { load(); }
+})();
+</script>
+</Layout>

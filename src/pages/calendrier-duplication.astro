@@ -1,0 +1,251 @@
+---
+/* GESTION-CALENDRIER — écran 2/4 : ASSISTANT DE DUPLICATION (le cœur du lot, §3)
+   À DÉPOSER dans : fronts/apps/management/src/pages/calendrier-duplication.astro
+   Maquette : management/calendrier-duplication.html
+   L'aperçu N'EST PAS calculé par le front : il vient de calendar.duplicate_preview, la même
+   fonction que la création (`_compute_duplicates`). Un aperçu recalculé côté écran pourrait
+   mentir sur ce qui sera créé. */
+import Layout from '../layouts/Layout.astro';
+import '../styles/calendar.css';
+---
+<Layout title="Dupliquer et décaler des sessions — emela management" role="resp" page="calendrier" shared={true}>
+<script is:inline src="/scripts/calendar-view.js"></script>
+
+<main class="page wrap-narrow" id="main-content" style="max-width:1080px">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Dupliquer et décaler</h1>
+      <p class="page-sub">Les copies sont créées en <b>brouillon</b>. Aucune session existante n’est modifiée.</p>
+    </div>
+    <a class="em-btn em-btn--ghost em-btn--sm" href="/calendrier">Retour au calendrier</a>
+  </div>
+
+  <div class="steps" id="steps">
+    <div class="step is-cur" data-s="1"><span class="n">1</span><span class="lb">Sélection</span></div>
+    <div class="step" data-s="2"><span class="n">2</span><span class="lb">Décalage</span></div>
+    <div class="step" data-s="3"><span class="n">3</span><span class="lb">Aperçu</span></div>
+  </div>
+
+  <section data-panel="1">
+    <div class="cd">
+      <div class="cd-head">
+        <span class="cd-title">Quelles sessions reprendre ?</span>
+        <div style="display:flex;gap:var(--space-3)"><button type="button" class="em-btn em-btn--ghost em-btn--sm" id="pick-recent">Toute l’année la plus récente</button><button type="button" class="em-btn em-btn--ghost em-btn--sm" id="pick-none">Aucune</button></div>
+      </div>
+      <div id="pick" class="cd-scroll"><div style="padding:var(--space-6)"><div class="em-skeleton em-skeleton--text"></div></div></div>
+    </div>
+    <p style="font-size:var(--text-xs);color:var(--text-tertiary);margin-top:var(--space-4);max-width:70ch">
+      La duplication <b>reconduit</b> un calendrier existant : elle reprend structure, programme et tarif, et décale les dates. Elle ne crée ni nouveau programme ni nouveau tarif. Pour un nouveau programme, contactez l’administration technique.
+    </p>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-5);margin-top:var(--space-6)">
+      <span style="font-size:var(--text-xs);color:var(--text-tertiary)" id="pick-n"></span>
+      <button type="button" class="em-btn em-btn--primary" id="to2" disabled>Choisir le décalage<svg class="ico-sm"><use href="#i-arrowright"/></svg></button>
+    </div>
+  </section>
+
+  <section data-panel="2" hidden>
+    <div class="cd">
+      <div class="cd-head"><span class="cd-title">De combien de jours décaler ?</span></div>
+      <div class="cd-body">
+        <div class="shift-row">
+          <div class="em-field shift-in"><label class="em-field-label" for="days">Jours</label><input class="em-input" type="number" id="days" min="1" max="1460" /></div>
+          <div class="em-field" style="flex:1;min-width:260px"><span class="em-field-label">Raccourcis</span>
+            <div class="chips" id="chips">
+              <button type="button" class="chip" data-d="364">364 — 52 semaines</button>
+              <button type="button" class="chip" data-d="371">371 — 53 semaines</button>
+              <button type="button" class="chip" data-d="365">365 — année calendaire</button>
+            </div>
+          </div>
+        </div>
+        <div class="em-alert em-alert--info" style="margin-top:var(--space-6)">
+          <span class="em-alert-icon"><svg class="ico"><use href="#i-info"/></svg></span>
+          <div class="em-alert-body">
+            <div class="em-alert-title">Un décalage de 364 jours conserve le jour de la semaine</div>
+            <span class="em-alert-text">52 semaines pile : une épreuve un samedi reste un samedi. 365 jours la déplacerait au dimanche. La valeur reste modifiable — l’aperçu signale chaque jour de semaine qui change.</span>
+          </div>
+        </div>
+        <div id="dow-check" style="margin-top:var(--space-5)"></div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;gap:var(--space-5);margin-top:var(--space-6)">
+      <button type="button" class="em-btn em-btn--secondary" id="back1">Retour</button>
+      <button type="button" class="em-btn em-btn--primary" id="to3">Voir l’aperçu<svg class="ico-sm"><use href="#i-arrowright"/></svg></button>
+    </div>
+  </section>
+
+  <section data-panel="3" hidden>
+    <div class="cd">
+      <div class="cd-head"><span class="cd-title">Ce qui sera créé</span><span class="em-badge em-badge--neutral em-badge--sm" id="prev-badge"></span></div>
+      <div style="overflow-x:auto"><table class="prev-tb" id="prev"></table></div>
+    </div>
+    <div id="code-warn"></div>
+    <div class="cd">
+      <div class="cd-head"><span class="cd-title">Ce que la duplication reprend — et ce qu’elle ne reprend pas</span></div>
+      <div class="cd-body" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-7)">
+        <div>
+          <div class="side-t">Repris à l’identique</div>
+          <div class="kv"><span class="k">Structure et libellés</span><span class="v">oui</span></div>
+          <div class="kv"><span class="k">Programme et niveau</span><span class="v">oui</span></div>
+          <div class="kv"><span class="k">Frais de candidature</span><span class="v">oui</span></div>
+          <div class="kv"><span class="k">Heures et salle d’épreuve</span><span class="v">oui</span></div>
+        </div>
+        <div>
+          <div class="side-t">Jamais repris</div>
+          <div class="kv"><span class="k">Candidatures</span><span class="v" style="color:var(--text-tertiary)">non</span></div>
+          <div class="kv"><span class="k">Paiements</span><span class="v" style="color:var(--text-tertiary)">non</span></div>
+          <div class="kv"><span class="k">État d’ouverture</span><span class="v" style="color:var(--text-tertiary)">non — brouillon</span></div>
+          <div class="kv"><span class="k">Année académique</span><span class="v">mise à jour</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="em-alert em-alert--neutral" style="margin-top:var(--space-5)">
+      <span class="em-alert-icon"><svg class="ico"><use href="#i-checkcircle"/></svg></span>
+      <div class="em-alert-body"><span class="em-alert-text"><b>Aucune collision d’identifiants</b> : les codes ci-dessus ont été vérifiés par le serveur contre les sessions existantes. Un brouillon reste <b>supprimable sans validation</b> — c’est le filet en cas d’erreur.</span></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;gap:var(--space-5);margin-top:var(--space-6)">
+      <button type="button" class="em-btn em-btn--secondary" id="back2">Retour</button>
+      <button type="button" class="em-btn em-btn--primary" id="confirm"><svg class="ico-sm"><use href="#i-copy"/></svg><span id="confirm-lb">Créer les brouillons</span></button>
+    </div>
+  </section>
+
+  <section data-panel="4" hidden>
+    <div class="cd"><div class="cd-body" style="text-align:center;padding:var(--space-10) var(--space-7)">
+      <div class="em-empty-icon" style="margin:0 auto var(--space-5);background:var(--success-50);color:var(--success-700)"><svg class="ico-lg"><use href="#i-checkcircle"/></svg></div>
+      <div class="em-empty-title" id="done-t"></div>
+      <p class="em-empty-desc" style="margin:var(--space-3) auto 0">Elles sont invisibles du catalogue candidat et ignorées par la fermeture automatique. Ouvrir chaque session exigera la validation de la Direction.</p>
+      <div style="display:flex;gap:var(--space-3);justify-content:center;margin-top:var(--space-7)">
+        <a class="em-btn em-btn--primary" href="/calendrier">Voir le calendrier</a>
+        <button type="button" class="em-btn em-btn--ghost" id="again">Dupliquer autre chose</button>
+      </div>
+    </div></div>
+  </section>
+</main>
+
+<script is:inline>
+(function(){
+  const API = window.EmelaAPI, UI = window.EmelaUI, K = window.EmelaCal, esc = UI.esc;
+  const preset = new URLSearchParams(location.search).get('s');
+  const sel = new Set(preset ? preset.split(',') : []);
+  let days = null, cal = null, plan = null, byName = {};
+
+  const unwrap = r => r.message ? r.message.data : r.data;
+
+  function syncShiftControls(){
+    document.getElementById('days').value = days;
+    document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('is-active', +x.dataset.d === days));
+  }
+
+  async function load(){
+    cal = unwrap(await API.calendarList());
+    // Le décalage par défaut vient du BACK (calendar_view.default_shift_days), jamais codé en dur ici.
+    days = cal.default_shift_days;
+    syncShiftControls();
+    cal.groups.forEach(g=>g.sessions.forEach(s=>{ byName[s.name] = s; }));
+    if(!sel.size && cal.groups.length) cal.groups[0].sessions.forEach(s=>sel.add(s.name));
+    renderPick();
+  }
+
+  function renderPick(){
+    document.getElementById('pick').innerHTML = cal.groups.map(g=>
+      '<div class="sr sr-head" style="grid-template-columns:26px 1fr 130px 130px 120px 110px;min-width:820px"><span></span>'
+      + '<div>Sessions '+esc(g.academic_year)+'</div><div>Ouverture</div><div>Clôture</div><div>Épreuve</div><div>État</div></div>'
+      + g.sessions.map(s=>'<div class="sr is-'+(s.lifecycle_state||'').toLowerCase()+'" style="grid-template-columns:26px 1fr 130px 130px 120px 110px;min-width:820px">'
+        + '<input type="checkbox" class="chk" data-sel="'+esc(s.name)+'"'+(sel.has(s.name)?' checked':'')+' aria-label="'+esc(s.session_code)+'" />'
+        + '<div><div class="sr-nm">'+esc(K.fullName(s))+'</div><div class="sr-code">'+esc(s.session_code)+'</div></div>'
+        + '<div class="sr-dt">'+K.fmt(s.opens_on)+'</div><div class="sr-dt">'+K.fmt(s.closes_on)+'</div>'
+        + '<div class="sr-dt"><span class="dow">'+K.dow(s.exam_date)+'</span> '+K.fmt(s.exam_date)+'</div>'
+        + '<div>'+K.badge(s)+'</div></div>').join('')).join('');
+    const n = sel.size;
+    document.getElementById('pick-n').textContent = n
+      ? n+' session'+(n>1?'s':'')+' sélectionnée'+(n>1?'s':'')+' — les originaux ne seront pas touchés.'
+      : 'Sélectionnez au moins une session.';
+    document.getElementById('to2').disabled = !n;
+  }
+
+  function renderDow(){
+    const rows = [...sel].map(n=>byName[n]).filter(s=>s && s.exam_date);
+    const changed = rows.filter(s=>K.dow(s.exam_date) !== K.dow(K.shift(s.exam_date, days)));
+    document.getElementById('dow-check').innerHTML = !changed.length
+      ? '<div class="em-alert em-alert--success"><span class="em-alert-icon">'+K.ico('i-checkcircle')+'</span><div class="em-alert-body"><span class="em-alert-text">Avec <b>'+days+' jours</b>, les '+rows.length+' épreuves conservent leur jour de la semaine.</span></div></div>'
+      : '<div class="em-alert em-alert--warning"><span class="em-alert-icon">'+K.ico('i-warning')+'</span><div class="em-alert-body"><div class="em-alert-title">'+changed.length+' épreuve'+(changed.length>1?'s changent':' change')+' de jour de la semaine</div><span class="em-alert-text">'
+        + changed.map(s=>esc(K.fullName(s))+' : '+K.dow(s.exam_date)+' → <b>'+K.dow(K.shift(s.exam_date,days))+'</b>').join(' · ')+'</span></div></div>';
+  }
+
+  /* Aperçu = réponse serveur (même calcul que la création). */
+  async function renderPrev(){
+    const tb = document.getElementById('prev');
+    tb.innerHTML = '<tbody><tr><td><div class="em-skeleton em-skeleton--text"></div></td></tr></tbody>';
+    plan = unwrap(await API.calendarDuplicatePreview([...sel], days));
+    const rows = plan.sessions;
+    document.getElementById('prev-badge').textContent = rows.length+' brouillon'+(rows.length>1?'s':'')+' · décalage de '+plan.shift_days+' jours';
+    document.getElementById('confirm-lb').textContent = 'Créer '+rows.length+' brouillon'+(rows.length>1?'s':'');
+    const F = [['opens_on','Ouverture'],['closes_on','Clôture'],['exam_date','Épreuve'],['bac_results_date','Résultats bac']];
+    tb.innerHTML = '<thead><tr><th style="width:230px">Nouvelle session</th>'+F.map(f=>'<th>'+f[1]+'</th>').join('')+'<th>État</th></tr></thead><tbody>'
+      + rows.map(p=>{
+        const src = byName[p.source] || {};
+        return '<tr><td><div class="sr-nm">'+esc(p.programme_label ? p.programme_label+' — '+p.label : p.label)+'</div>'
+          + '<div class="sr-code">'+esc(p.new_code)+' · AA '+esc(p.academic_year)+'</div></td>'
+          + F.map(f=>{
+              const nv = p[f[0]], was = src[f[0]];
+              const same = nv && was && K.dow(nv) === K.dow(was);
+              return '<td><span class="now">'+K.fmt(nv)+' <span class="dow">'+K.dow(nv)+'</span> '
+                + (f[0]==='exam_date' && nv ? (same?'<span class="dow-ok">même jour</span>':'<span class="dow-ko">jour changé</span>') : '')
+                + '</span><span class="was">était : '+K.fmt(was)+'</span></td>';
+            }).join('')
+          + '<td><span class="ss ss--bro"><span class="d"></span>Brouillon</span></td></tr>';
+      }).join('') + '</tbody>';
+    const adj = rows.filter(p=>p.code_adjusted);
+    document.getElementById('code-warn').innerHTML = adj.length
+      ? '<div class="em-alert em-alert--warning" style="margin-top:var(--space-5)"><span class="em-alert-icon">'+K.ico('i-warning')+'</span><div class="em-alert-body"><div class="em-alert-title">'+adj.length+' identifiant'+(adj.length>1?'s ont':' a')+' été ajusté'+(adj.length>1?'s':'')+'</div><span class="em-alert-text">Un code dérivé existait déjà : '
+        + adj.map(p=>esc(p.new_code)).join(', ')+'. Rien n’est silencieux — vérifiez avant de créer.</span></div></div>'
+      : '';
+  }
+
+  function go(n){
+    document.querySelectorAll('[data-panel]').forEach(p=>{ p.hidden = p.dataset.panel !== String(n); });
+    document.querySelectorAll('.step').forEach(s=>{ const i = +s.dataset.s;
+      s.classList.toggle('is-cur', i===n); s.classList.toggle('is-done', i<n || n===4); });
+    document.getElementById('steps').hidden = n===4;
+    if(n===2) renderDow();
+    if(n===3) renderPrev();
+    window.scrollTo(0,0);
+  }
+
+  document.getElementById('pick').addEventListener('change', e=>{
+    const c = e.target.closest('[data-sel]'); if(!c) return;
+    c.checked ? sel.add(c.dataset.sel) : sel.delete(c.dataset.sel);
+    renderPick();
+  });
+  document.getElementById('pick-recent').addEventListener('click', ()=>{ sel.clear(); cal.groups[0].sessions.forEach(s=>sel.add(s.name)); renderPick(); });
+  document.getElementById('pick-none').addEventListener('click', ()=>{ sel.clear(); renderPick(); });
+  document.getElementById('chips').addEventListener('click', e=>{
+    const b = e.target.closest('.chip'); if(!b) return;
+    days = +b.dataset.d; document.getElementById('days').value = days;
+    document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('is-active', x===b));
+    renderDow();
+  });
+  document.getElementById('days').addEventListener('input', e=>{
+    days = Math.max(1, +e.target.value || 0);
+    document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('is-active', +x.dataset.d === days));
+    renderDow();
+  });
+  document.getElementById('to2').addEventListener('click', ()=>go(2));
+  document.getElementById('to3').addEventListener('click', ()=>go(3));
+  document.getElementById('back1').addEventListener('click', ()=>go(1));
+  document.getElementById('back2').addEventListener('click', ()=>go(2));
+  document.getElementById('again').addEventListener('click', ()=>{ go(1); });
+  document.getElementById('confirm').addEventListener('click', async e=>{
+    const btn = e.currentTarget; btn.disabled = true;
+    try{
+      const res = unwrap(await API.calendarDuplicateCreate([...sel], days));
+      const n = res.created.length;
+      document.getElementById('done-t').textContent = n+' brouillon'+(n>1?'s':'')+' créé'+(n>1?'s':'')+'.';
+      go(4);
+    } catch(err){ UI.emToast('Duplication refusée : '+(err && err.message ? err.message : 'erreur serveur'), 'error'); }
+    finally{ btn.disabled = false; }
+  });
+
+  load();
+})();
+</script>
+</Layout>

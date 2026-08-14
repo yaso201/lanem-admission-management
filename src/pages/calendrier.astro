@@ -1,0 +1,253 @@
+---
+/* GESTION-CALENDRIER — écran 1/4 : LE CALENDRIER (liste + frise, groupé par année académique)
+   À DÉPOSER dans : fronts/apps/management/src/pages/calendrier.astro
+   Maquette de référence : management/calendrier.html (projet de design)
+   Données : admission.api.calendar_view.calendar_list — le front ne calcule aucune règle. */
+import Layout from '../layouts/Layout.astro';
+import '../styles/calendar.css';
+---
+<Layout title="Calendrier des sessions — emela management" role="resp" page="calendrier" shared={true}>
+<script is:inline src="/scripts/calendar-view.js"></script>
+
+<main class="page" id="main-content">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Calendrier des sessions</h1>
+      <p class="page-sub" id="sub"></p>
+    </div>
+    <div style="display:flex;gap:var(--space-3)">
+      <a class="em-btn em-btn--secondary em-btn--sm" data-roles="resp dir" href="/calendrier-duplication"><svg class="ico-sm"><use href="#i-copy"/></svg>Dupliquer une année</a>
+    </div>
+  </div>
+
+  <div class="ptabs">
+    <div class="ptab is-active"><svg class="ico-sm"><use href="#i-cal"/></svg>Sessions</div>
+    <a class="ptab" href="/calendrier-validations"><svg class="ico-sm"><use href="#i-hourglass"/></svg><span id="tab-val-lb">En attente de validation</span><span class="em-counter" id="tab-val">0</span></a>
+  </div>
+
+  <div class="em-alert em-alert--warning" id="dir-banner" data-roles="dir" hidden>
+    <span class="em-alert-icon"><svg class="ico"><use href="#i-hourglass"/></svg></span>
+    <div class="em-alert-body">
+      <div class="em-alert-title" id="dir-banner-t"></div>
+      <span class="em-alert-text"><b>Tant qu’elles ne sont pas validées, l’ancienne valeur s’applique</b> — les candidats voient les dates actuelles.</span>
+      <div class="em-alert-actions"><a class="em-btn em-btn--primary em-btn--sm" href="/calendrier-validations">Ouvrir la file de validation<svg class="ico-sm"><use href="#i-arrowright"/></svg></a></div>
+    </div>
+  </div>
+
+  <div class="em-alert em-alert--neutral" data-roles="admin" style="margin-bottom:var(--space-6)">
+    <span class="em-alert-icon"><svg class="ico"><use href="#i-eye"/></svg></span>
+    <div class="em-alert-body"><span class="em-alert-text"><b>Lecture seule.</b> La construction du calendrier relève du Responsable admission ; l’ouverture et les changements de date relèvent de la Direction.</span></div>
+  </div>
+
+  <div class="cal-bar">
+    <div class="vseg" id="vseg">
+      <button type="button" data-v="dense" class="is-active"><svg class="ico-sm"><use href="#i-list"/></svg>Liste</button>
+      <button type="button" data-v="frise"><svg class="ico-sm"><use href="#i-timeline"/></svg>Frise</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:var(--space-4);font-size:var(--text-xs);color:var(--text-secondary)">
+      <span style="display:inline-flex;align-items:center;gap:6px"><span class="ss ss--bro"><span class="d"></span>Brouillon</span>invisible du candidat</span>
+      <span style="display:inline-flex;align-items:center;gap:6px"><span class="ss ss--ouv"><span class="d"></span>Ouverte</span>publiée, engage</span>
+      <span style="display:inline-flex;align-items:center;gap:6px"><span class="ss ss--fer"><span class="d"></span>Fermée</span>non sélectionnable</span>
+    </div>
+  </div>
+
+  <div id="groups"><div style="display:flex;flex-direction:column;gap:8px;padding:var(--space-6)"><div class="em-skeleton em-skeleton--title"></div><div class="em-skeleton em-skeleton--text"></div><div class="em-skeleton em-skeleton--text em-skeleton--text-short"></div></div></div>
+
+  <div class="selbar" id="selbar" hidden>
+    <span class="n" id="sel-n"></span>
+    <span class="h">La duplication crée des brouillons — les sessions sélectionnées ne sont jamais modifiées.</span>
+    <button type="button" class="em-btn em-btn--ghost em-btn--sm" id="sel-clear">Effacer</button>
+    <a class="em-btn em-btn--accent em-btn--sm" id="sel-dup" href="/calendrier-duplication"><svg class="ico-sm"><use href="#i-copy"/></svg>Dupliquer et décaler</a>
+  </div>
+</main>
+
+<script is:inline>
+(function(){
+  const API = window.EmelaAPI, UI = window.EmelaUI, K = window.EmelaCal, esc = UI.esc;
+  const sel = new Set();
+  let view = 'dense', role = 'resp', data = null, openAA = {};
+
+  function cellDate(s, f){
+    const pol = (s.policies||{})[f] || {}, p = K.pendingOf(s, f);
+    const locked = K.mode(pol) === 'locked';
+    let h = '<div class="sr-dt'+(locked?' locked':'')+'"><span class="dow">'+K.dow(s[f])+'</span> '+K.fmt(s[f])+'</div>';
+    if(p){
+      h += '<span class="pend" title="Proposé par '+esc(p.requested_by||'')+'">'+K.ico('i-hourglass')
+        + '<span>'+K.fmt(p.current_value).replace(/ \d{4}$/,'')+'</span><span class="ar">→</span>'
+        + '<span class="nv">'+K.fmtDow(p.proposed_value)+'</span></span>'
+        + '<span class="applies">l’ancienne valeur s’applique jusqu’à validation</span>';
+      if(p.triggers_reissue && s.convocation_count) h += '<span class="pend-note">'+s.convocation_count+' convocations à réémettre</span>';
+    }
+    return h;
+  }
+
+  function actions(s){
+    const editUrl = '/calendrier-session?s='+encodeURIComponent(s.name);
+    const hasPending = (s.pending||[]).length > 0;
+    if(role === 'admin') return '<span style="font-size:var(--text-xs);color:var(--text-tertiary)">—</span>';
+    // Dupliquer CETTE session — le geste « ajouter une session en cours d'année » (resp + dir).
+    // La page de duplication pré-sélectionne la session via ?s= ; le back reprend une liste d'une entrée.
+    const dup = '<a class="em-btn em-btn--ghost em-btn--sm" href="/calendrier-duplication?s='+encodeURIComponent(s.name)+'" title="Dupliquer et décaler cette session">'+K.ico('i-copy')+'</a>';
+    let a;
+    if(role === 'dir'){
+      if(hasPending) a = '<a class="em-btn em-btn--primary em-btn--sm" href="/calendrier-validations">Valider</a>';
+      else if(s.lifecycle_state === 'Draft') a = '<button type="button" class="em-btn em-btn--secondary em-btn--sm" data-open="'+esc(s.name)+'">'+K.ico('i-lockopen')+'Ouvrir</button>';
+      else a = '<a class="em-btn em-btn--ghost em-btn--sm" href="'+editUrl+'">'+K.ico('i-pencil')+'Modifier</a>';
+    } else if(hasPending){
+      a = '<span class="em-badge em-badge--warning em-badge--sm">'+K.ico('i-hourglass')+'Proposé, en attente</span>';
+    } else if(s.lifecycle_state === 'Draft'){
+      a = '<a class="em-btn em-btn--secondary em-btn--sm" href="'+editUrl+'">'+K.ico('i-pencil')+'Modifier</a>'
+        + (s.can_delete ? '<button type="button" class="em-btn em-btn--ghost em-btn--sm" data-del="'+esc(s.name)+'" title="Supprimer ce brouillon">'+K.ico('i-trash')+'</button>' : '');
+    } else {
+      a = '<a class="em-btn em-btn--ghost em-btn--sm" href="'+editUrl+'">'+K.ico('i-pencil')+'Proposer</a>';
+    }
+    return a + dup;
+  }
+
+  function rowDense(s){
+    return '<div class="sr is-'+(s.lifecycle_state||'').toLowerCase()+(sel.has(s.name)?' is-sel':'')+'" data-code="'+esc(s.name)+'">'
+      + '<input type="checkbox" class="chk" data-sel="'+esc(s.name)+'"'+(sel.has(s.name)?' checked':'')+(role==='admin'?' disabled':'')+' aria-label="Sélectionner '+esc(s.session_code)+'" />'
+      + '<div><div class="sr-nm">'+esc(K.fullName(s))+'</div><div class="sr-code">'+esc(s.session_code)+'</div></div>'
+      + K.DATE_FIELDS.map(f=>'<div>'+cellDate(s,f.k)+'</div>').join('')
+      + '<div class="sr-cand">'+(s.lifecycle_state==='Draft'?'<span class="cap">—</span>':s.applicant_count)+'</div>'
+      + '<div class="sr-state">'+K.badge(s)+'</div>'
+      + '<div class="sr-act">'+actions(s)+'</div></div>';
+  }
+
+  function headDense(){
+    return '<div class="sr sr-head"><span></span><div>Session</div>'
+      + K.DATE_FIELDS.map(f=>'<div>'+f.short+'</div>').join('')
+      + '<div>Dossiers</div><div>État</div><div></div></div>';
+  }
+
+  /* Frise : une barre ouverture→clôture, un point d'épreuve, un fantôme par changement proposé. */
+  function frise(list){
+    let min=null,max=null;
+    list.forEach(s=>[s.opens_on,s.closes_on,s.exam_date].concat((s.pending||[]).map(p=>p.proposed_value))
+      .forEach(x=>{ if(!x||String(x).length<10) return; x=String(x).slice(0,10); if(!min||x<min)min=x; if(!max||x>max)max=x; }));
+    if(!min) return '<div class="cd"><div class="cd-body">Aucune date.</div></div>';
+    const a=K.toD(min), b=K.toD(max), y0=a.getFullYear(), m0=a.getMonth();
+    const nMo=(b.getFullYear()-y0)*12+(b.getMonth()-m0)+1;
+    const start=new Date(y0,m0,1), end=new Date(b.getFullYear(),b.getMonth()+1,1), span=end-start;
+    const pos = iso => ((K.toD(iso)-start)/span*100);
+    let mo='', grid='';
+    for(let i=0;i<nMo;i++){ const d=new Date(y0,m0+i,1), l=((d-start)/span*100);
+      mo += '<span class="tl-mo" style="left:'+l+'%">'+K.MOIS[d.getMonth()]+' '+String(d.getFullYear()).slice(2)+'</span>';
+      grid += '<i style="left:'+l+'%"></i>'; }
+    const today = data.today, todayIn = today>=min && today<=max;
+    const rows = list.map(s=>{
+      const pe=K.pendingOf(s,'exam_date'), pc=K.pendingOf(s,'closes_on');
+      const st=(s.lifecycle_state||'').toLowerCase().replace('draft','bro').replace('open','ouv').replace('closed','fer');
+      const x1=pos(s.opens_on), x2=pos(pc?pc.current_value:s.closes_on);
+      let bar='<div class="tl-bar '+st+'" style="left:'+x1+'%;width:'+Math.max(0,x2-x1)+'%"></div>';
+      if(pc) bar+='<div class="tl-ghost" style="left:'+x2+'%;width:'+Math.max(0,pos(pc.proposed_value)-x2)+'%"></div>';
+      if(s.exam_date){
+        if(pe) bar+='<div class="tl-ghost" style="left:'+pos(pe.current_value)+'%;width:'+Math.max(0,pos(pe.proposed_value)-pos(pe.current_value))+'%"></div>';
+        bar+='<div class="tl-dot '+(pe?'pending':st)+'" style="left:'+pos(pe?pe.current_value:s.exam_date)+'%" title="Épreuve — '+K.fmtDow(s.exam_date)+'">É</div>';
+        if(pe) bar+='<div class="tl-dot pending" style="left:'+pos(pe.proposed_value)+'%;opacity:.55" title="Report proposé — '+K.fmtDow(pe.proposed_value)+'">É</div>';
+      }
+      return '<div class="tl-row"><div class="tl-lab"><div class="nm">'+esc(K.fullName(s))+'</div>'
+        + '<div class="mt">'+esc(s.session_code)+' · '+K.stateOf(s).label+'</div></div>'
+        + '<div class="tl-lane"><div class="tl-grid">'+grid+'</div>'+bar+'</div></div>';
+    }).join('');
+    return '<div class="cd"><div class="tl"><div class="tl-axis">'+mo
+      + (todayIn?'<span class="tl-today" style="left:'+pos(today)+'%;height:'+(list.length*43+22)+'px"></span>':'')+'</div>'+rows+'</div>'
+      + '<div class="tl-legend">'
+      + '<span><i class="tl-key" style="background:var(--success-500)"></i>Dépôts ouverts</span>'
+      + '<span><i class="tl-key" style="background:var(--sand-300)"></i>Session fermée</span>'
+      + '<span><i class="tl-key" style="background:transparent;border:1.5px dashed var(--sand-400)"></i>Brouillon</span>'
+      + '<span><span class="tl-dot" style="position:static;margin:0;width:16px;height:16px">É</span>Épreuve écrite</span>'
+      + '<span><i class="tl-key" style="background:var(--warning-100);border:1px dashed var(--warning-500)"></i>Changement proposé, en attente</span>'
+      + '</div></div>';
+  }
+
+  function render(){
+    if(!data) return;
+    document.getElementById('groups').innerHTML = data.groups.map((g,i)=>{
+      if(openAA[g.academic_year] === undefined) openAA[g.academic_year] = i === 0 ? 1 : 0;
+      const list = g.sessions, n = {Draft:0,Open:0,Closed:0};
+      list.forEach(s=>{ n[s.lifecycle_state] = (n[s.lifecycle_state]||0)+1; });
+      const pend = list.reduce((k,s)=>k+(s.pending||[]).length,0);
+      const body = view==='dense' ? '<div class="cd cd-scroll">'+headDense()+list.map(rowDense).join('')+'</div>' : frise(list);
+      return '<section class="aa" data-open="'+(openAA[g.academic_year]?1:0)+'">'
+        + '<button type="button" class="aa-head" data-toggle="'+esc(g.academic_year)+'" aria-expanded="'+(openAA[g.academic_year]?'true':'false')+'">'
+        + '<svg class="ico aa-chev"><use href="#i-caretdown"/></svg><span class="aa-yr">'+esc(g.academic_year)+'</span>'
+        + '<span class="aa-spacer"></span><span class="aa-counts">'
+        + (n.Open?'<span><b>'+n.Open+'</b> ouverte'+(n.Open>1?'s':'')+'</span>':'')
+        + (n.Draft?'<span><b>'+n.Draft+'</b> brouillon'+(n.Draft>1?'s':'')+'</span>':'')
+        + (n.Closed?'<span><b>'+n.Closed+'</b> fermée'+(n.Closed>1?'s':'')+'</span>':'')
+        + (pend?'<span style="color:var(--warning-700)"><b style="color:var(--warning-700)">'+pend+'</b> en attente</span>':'')
+        + '</span></button><div class="aa-body">'+body+'</div></section>';
+    }).join('');
+    document.getElementById('tab-val').textContent = data.pending_total;
+    const banner = document.getElementById('dir-banner');
+    banner.hidden = role!=='dir' || !data.pending_total;
+    if(!banner.hidden) document.getElementById('dir-banner-t').textContent =
+      data.pending_total+' demande'+(data.pending_total>1?'s attendent':' attend')+' votre validation';
+    syncSel();
+  }
+
+  function syncSel(){
+    const bar = document.getElementById('selbar');
+    bar.hidden = sel.size === 0;
+    if(sel.size){
+      document.getElementById('sel-n').textContent = sel.size+' session'+(sel.size>1?'s':'')+' sélectionnée'+(sel.size>1?'s':'');
+      document.getElementById('sel-dup').href = '/calendrier-duplication?s='+[...sel].map(encodeURIComponent).join(',');
+    }
+    document.querySelectorAll('.sr[data-code]').forEach(r=>r.classList.toggle('is-sel', sel.has(r.dataset.code)));
+  }
+
+  async function load(){
+    try{ const r = await API.calendarList(); data = r.message ? r.message.data : r.data; render(); }
+    catch(e){ document.getElementById('groups').innerHTML = '<div class="em-error-state"><div class="em-empty-title">Calendrier indisponible</div></div>'; }
+  }
+
+  document.getElementById('vseg').addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    view = b.dataset.v;
+    document.querySelectorAll('#vseg button').forEach(x=>x.classList.toggle('is-active', x===b));
+    render();
+  });
+
+  document.getElementById('groups').addEventListener('click', async e=>{
+    const t = e.target.closest('[data-toggle]');
+    if(t){ openAA[t.dataset.toggle] = openAA[t.dataset.toggle] ? 0 : 1; render(); return; }
+    const d = e.target.closest('[data-del]');
+    if(d){
+      UI.emModal({ title:'Supprimer ce brouillon ?', body:'Rien n’est publié : la suppression est le filet en cas d’erreur de duplication.',
+        submitLabel:'Supprimer', danger:true, onSubmit: async ()=>{ await API.calendarDeleteDraft(d.dataset.del); UI.emToast('Brouillon supprimé.','success'); load(); } });
+      return;
+    }
+    const o = e.target.closest('[data-open]');
+    if(o){
+      UI.emModal({ title:'Ouvrir cette session ?', body:'Elle deviendra visible du catalogue candidat et les dépôts seront possibles. Acte de la Direction.',
+        submitLabel:'Ouvrir la session', onSubmit: async ()=>{ await API.calendarOpenSession(o.dataset.open); UI.emToast('Session ouverte.','success'); load(); } });
+    }
+  });
+
+  document.getElementById('groups').addEventListener('change', e=>{
+    const c = e.target.closest('[data-sel]'); if(!c) return;
+    c.checked ? sel.add(c.dataset.sel) : sel.delete(c.dataset.sel);
+    syncSel();
+  });
+  document.getElementById('sel-clear').addEventListener('click', ()=>{
+    sel.clear(); document.querySelectorAll('[data-sel]').forEach(c=>{c.checked=false;}); syncSel();
+  });
+
+  const SUB = {
+    resp: 'Cycle préparatoire et sessions par programme. Vous préparez et proposez ; la <b>Direction</b> valide les ouvertures et les changements de date.',
+    dir: 'Vue Direction. Vous validez les <b>ouvertures</b> de session et les <b>changements de date</b> sur session ouverte.',
+    admin: 'Consultation du calendrier des sessions d’admission.',
+    sm: 'Consultation du calendrier des sessions d’admission.'
+  };
+  window.onEmelaRole = function(r){
+    role = r;
+    document.getElementById('sub').innerHTML = SUB[r] || SUB.admin;
+    document.getElementById('tab-val-lb').textContent = r === 'dir' ? 'À valider' : 'En attente de validation';
+    if(r === 'admin') sel.clear();
+    render();
+  };
+  load();
+})();
+</script>
+</Layout>

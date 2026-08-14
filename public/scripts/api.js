@@ -391,6 +391,55 @@
       try { return new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }); }
       catch (e) { return String(d); }
     },
+
+    /* ---- GESTION-CALENDRIER : lecture (calendar_view.py) ---- */
+    calendarList(academicYear) {
+      return request('/api/method/admission.api.calendar_view.calendar_list',
+        { params: academicYear ? { academic_year: academicYear } : {} });
+    },
+    calendarSession(session) {
+      return request('/api/method/admission.api.calendar_view.session_detail',
+        { params: { session } });
+    },
+    calendarPendingQueue() {
+      return request('/api/method/admission.api.calendar_view.pending_queue');
+    },
+
+    /* ---- GESTION-CALENDRIER : duplication (le Responsable saisit) ---- */
+    calendarDuplicatePreview(sessions, shiftDays, academicYear) {
+      return request('/api/method/admission.api.calendar.duplicate_preview',
+        { params: { sessions: JSON.stringify(sessions), shift_days: shiftDays, academic_year: academicYear || null } });
+    },
+    calendarDuplicateCreate(sessions, shiftDays, academicYear, codeOverrides) {
+      return request('/api/method/admission.api.calendar.duplicate_create',
+        { method: 'POST', body: { sessions, shift_days: shiftDays, academic_year: academicYear || null, code_overrides: codeOverrides || null } });
+    },
+    calendarDeleteDraft(session) {
+      return request('/api/method/admission.api.calendar.delete_draft',
+        { method: 'POST', body: { session } });
+    },
+
+    /* ---- GESTION-CALENDRIER : édition + maker-checker ---- */
+    calendarUpdateDraft(session, values) {
+      return request('/api/method/admission.api.calendar.update_draft',
+        { method: 'POST', body: { session, values } });
+    },
+    calendarProposeChanges(session, changes) {
+      return request('/api/method/admission.api.calendar.propose_changes',
+        { method: 'POST', body: { session, changes } });
+    },
+    calendarOpenSession(session) {
+      return request('/api/method/admission.api.calendar.open_session',
+        { method: 'POST', body: { session } });
+    },
+    calendarValidateChanges(session) {
+      return request('/api/method/admission.api.calendar.validate_changes',
+        { method: 'POST', body: { session } });
+    },
+    calendarRejectChanges(session) {
+      return request('/api/method/admission.api.calendar.reject_changes',
+        { method: 'POST', body: { session } });
+    },
   };
 
   window.EmelaAPI = API;

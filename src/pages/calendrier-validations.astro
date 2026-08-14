@@ -1,0 +1,207 @@
+---
+/* GESTION-CALENDRIER — écran 4/4 : FILE DE VALIDATION (côté Direction / côté Responsable)
+   À DÉPOSER dans : fronts/apps/management/src/pages/calendrier-validations.astro
+   Maquette : management/calendrier-validations.html
+   GK6 : la Direction doit savoir AVANT de cliquer qu'un report réémet les convocations →
+   modale de confirmation en second temps, portant le nombre de convoqués. */
+import Layout from '../layouts/Layout.astro';
+import '../styles/calendar.css';
+---
+<Layout title="Validations du calendrier — emela management" role="dir" page="calendrier" shared={true}>
+<script is:inline src="/scripts/calendar-view.js"></script>
+
+<main class="page" id="main-content" style="max-width:960px">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Validations du calendrier</h1>
+      <p class="page-sub" id="sub"></p>
+    </div>
+    <a class="em-btn em-btn--ghost em-btn--sm" href="/calendrier">Retour au calendrier</a>
+  </div>
+
+  <div class="ptabs">
+    <a class="ptab" href="/calendrier"><svg class="ico-sm"><use href="#i-cal"/></svg>Sessions</a>
+    <div class="ptab is-active"><svg class="ico-sm"><use href="#i-hourglass"/></svg><span id="tab-lb">À valider</span><span class="em-counter" id="tab-n">0</span></div>
+  </div>
+
+  <div class="em-alert em-alert--info" style="margin-bottom:var(--space-6)">
+    <span class="em-alert-icon"><svg class="ico"><use href="#i-info"/></svg></span>
+    <div class="em-alert-body"><span class="em-alert-text" id="banner"></span></div>
+  </div>
+
+  <div class="vq" id="vq"></div>
+
+  <div class="cd" id="empty" hidden><div class="cd-body" style="text-align:center;padding:var(--space-10)">
+    <div class="em-empty-icon" style="margin:0 auto var(--space-5);background:var(--success-50);color:var(--success-700)"><svg class="ico-lg"><use href="#i-checkcircle"/></svg></div>
+    <div class="em-empty-title">Rien en attente</div>
+    <p class="em-empty-desc" style="margin:var(--space-3) auto 0">Le calendrier publié correspond aux dates validées.</p>
+  </div></div>
+</main>
+
+<!-- Modale de second temps : report d'épreuve → réémission des convocations (GK6) -->
+<div class="ov" id="ov" hidden role="dialog" aria-modal="true" aria-labelledby="mo-title">
+  <div class="em-modal em-modal--lg">
+    <div class="em-modal-head">
+      <div>
+        <h2 class="em-modal-title" id="mo-title">Valider ce report réémettra les convocations</h2>
+        <p class="em-modal-desc" id="mo-sub"></p>
+      </div>
+      <button type="button" class="em-alert-dismiss" id="mo-x" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="em-modal-body" style="display:grid;gap:var(--space-6)">
+      <div style="display:flex;align-items:center;gap:var(--space-5);padding:var(--space-5);background:var(--warning-50);border:1px solid var(--warning-100);border-radius:var(--radius-md)">
+        <span class="big" style="color:var(--warning-900)" id="mo-n">0</span>
+        <div style="font-size:var(--text-sm);color:var(--warning-900);line-height:var(--leading-relaxed)">
+          <b>convocations seront réémises</b> à la validation. Chaque candidat concerné recevra un courriel « Report de votre épreuve — nouvelle date » et sa convocation à jour. Sans cette réémission, des candidats se présenteraient le mauvais jour.
+        </div>
+      </div>
+      <div>
+        <div class="side-t">Ce qui change sur la convocation</div>
+        <div class="delta" style="max-width:none">
+          <div class="delta-box old"><div class="lb">Valeur en vigueur</div><div class="vl" id="mo-old"></div></div>
+          <div class="delta-arrow"><svg class="ico"><use href="#i-arrowright"/></svg></div>
+          <div class="delta-box new"><div class="lb">Valeur proposée</div><div class="vl" id="mo-new"></div></div>
+        </div>
+      </div>
+      <div id="mo-extra"></div>
+    </div>
+    <div class="em-modal-foot">
+      <button type="button" class="em-btn em-btn--secondary" id="mo-cancel">Annuler</button>
+      <button type="button" class="em-btn em-btn--primary" id="mo-ok"><svg class="ico-sm"><use href="#i-mail"/></svg><span id="mo-ok-lb"></span></button>
+    </div>
+  </div>
+</div>
+
+<script is:inline>
+(function(){
+  const API = window.EmelaAPI, UI = window.EmelaUI, K = window.EmelaCal, esc = UI.esc;
+  const unwrap = r => r.message ? r.message.data : r.data;
+  let role = 'dir', items = [], target = null;
+
+  /* Une carte par session, portant TOUS ses changements en attente : la validation serveur
+     s'applique par LOT (validate_changes purge tout le pending de la session). Une carte par
+     champ mentirait sur la granularité de l'acte. */
+  function groups(){
+    const by = {};
+    items.forEach(it=>{ const k = it.session.name; (by[k] = by[k] || { s: it.session, changes: [] }).changes.push(it.change); });
+    return Object.keys(by).map(k=>by[k]);
+  }
+
+  function kindOf(g){
+    if(g.changes.some(c=>c.triggers_reissue)) return { t: 'Report d’épreuve', ico: 'i-warning', badge: 'em-badge--warning', warn: true };
+    if(g.changes.some(c=>c.change_field === 'closes_on')) return { t: 'Prolongation de la clôture', ico: 'i-arrowright', badge: 'em-badge--info', warn: false };
+    return { t: 'Changement de date', ico: 'i-cal', badge: 'em-badge--info', warn: false };
+  }
+
+  function deltaRow(c){
+    return '<div class="delta">'
+      + '<div class="delta-box old"><div class="lb">'+esc(c.field_label||c.change_field)+' — en vigueur</div><div class="vl">'+K.fmtDow(c.current_value)+'</div></div>'
+      + '<div class="delta-arrow"><svg class="ico"><use href="#i-arrowright"/></svg></div>'
+      + '<div class="delta-box new"><div class="lb">Proposé</div><div class="vl">'+K.fmtDow(c.proposed_value)+'</div></div></div>';
+  }
+
+  function consequence(g, k){
+    const s = g.s;
+    if(k.warn) return 'L’épreuve est déplacée. '+s.convocation_count+' convocations déjà émises portent l’ancienne date : elles seront réémises à la validation.';
+    const c = g.changes.filter(x=>x.change_field === 'closes_on')[0];
+    if(c) return 'Les candidats gagneront '+K.days(c.current_value, c.proposed_value)+' jours pour déposer. Aucune convocation n’est concernée — la clôture ne figure pas sur la convocation.';
+    return 'Le changement s’appliquera dès la validation.';
+  }
+
+  function card(g){
+    const s = g.s, k = kindOf(g), first = g.changes[0];
+    const dirActions = '<button type="button" class="em-btn em-btn--ghost em-btn--sm" data-refuse="'+esc(s.name)+'">Refuser</button>'
+      + '<button type="button" class="em-btn em-btn--primary em-btn--sm" data-ok="'+esc(s.name)+'">'
+      + (k.warn ? K.ico('i-mail')+'Valider et réémettre '+s.convocation_count+' convocations' : K.ico('i-check')+'Valider')+'</button>';
+    const respActions = '<span class="em-badge em-badge--warning em-badge--sm">'+K.ico('i-hourglass')+'Proposé, en attente</span>';
+    return '<article class="vcard'+(k.warn?' is-warn':'')+'">'
+      + '<div class="vcard-head"><span class="em-badge '+k.badge+' em-badge--sm">'+K.ico(k.ico)+k.t+'</span>'
+      + '<div class="t"><div class="nm">'+esc(K.fullName(s))+'</div>'
+      + '<div class="mt">'+esc(s.session_code)+' · AA '+esc(s.academic_year)+' · proposé par '+esc(first.requested_by||'—')
+      + (first.requested_on ? ' le '+K.fmt(first.requested_on) : '')+'</div></div>'
+      + K.badge(s)+'</div>'
+      + '<div class="vcard-body">'
+      + g.changes.map(deltaRow).join('')
+      + '<div class="why '+(k.warn?'why--warn':'why--bound')+'" style="max-width:70ch">'+K.ico(k.warn?'i-warning':'i-info')+'<span>'+consequence(g,k)+'</span></div>'
+      + (role !== 'dir' ? '<div class="wait">'+K.ico('i-hourglass')+'<span>En attendant la validation, <b>l’ancienne valeur continue de s’appliquer</b>.</span></div>' : '')
+      + '</div>'
+      + '<div class="vcard-foot"><span class="sp">'+(role === 'dir' ? 'La décision est enregistrée avec votre nom et l’horodatage.' : 'Seule la Direction peut valider.')+'</span>'
+      + (role === 'dir' ? dirActions : (role === 'resp' ? respActions : '')) + '</div></article>';
+  }
+
+  function render(){
+    const gs = groups();
+    document.getElementById('vq').innerHTML = gs.map(card).join('');
+    document.getElementById('empty').hidden = gs.length > 0;
+    document.getElementById('tab-n').textContent = items.length;
+    document.getElementById('tab-lb').textContent = role === 'dir' ? 'À valider' : 'En attente de validation';
+    const reemit = gs.filter(g=>kindOf(g).warn).length;
+    document.getElementById('sub').innerHTML = role === 'dir'
+      ? 'Deux actes seulement passent par vous : <b>ouvrir</b> une session, et <b>modifier une date</b> d’une session ouverte.'
+      : role === 'resp' ? 'Vos propositions en attente. <b>L’ancienne valeur s’applique</b> jusqu’à la décision de la Direction.'
+      : 'Consultation des demandes en cours.';
+    document.getElementById('banner').innerHTML = role === 'dir'
+      ? 'Une modification en attente <b>n’a aucun effet sur les candidats</b> : jusqu’à votre validation, l’ancienne valeur s’applique.'
+        + (reemit ? ' <b>'+reemit+' demande'+(reemit>1?'s':'')+'</b> réémettra des convocations — une confirmation vous le rappellera.' : '')
+      : 'Le brouillon et la date des résultats du bac n’entrent pas dans ce circuit : ils n’engagent personne.';
+  }
+
+  function openModal(g){
+    target = g;
+    const s = g.s, c = g.changes.filter(x=>x.triggers_reissue)[0] || g.changes[0];
+    document.getElementById('mo-sub').textContent = K.fullName(s)+' · '+s.session_code;
+    document.getElementById('mo-n').textContent = s.convocation_count;
+    document.getElementById('mo-old').innerHTML = K.fmt(c.current_value)+' <span class="dow">'+K.dow(c.current_value)
+      + (s.exam_call_time ? ' · appel '+s.exam_call_time : '')+(s.exam_room ? ' · '+esc(s.exam_room) : '')+'</span>';
+    document.getElementById('mo-new').innerHTML = K.fmt(c.proposed_value)+' <span class="dow">'+K.dow(c.proposed_value)
+      + (s.exam_call_time ? ' · appel '+s.exam_call_time : '')+(s.exam_room ? ' · '+esc(s.exam_room) : '')+'</span>';
+    document.getElementById('mo-ok-lb').textContent = 'Valider et réémettre '+s.convocation_count+' convocations';
+    const others = g.changes.filter(x=>x !== c);
+    document.getElementById('mo-extra').innerHTML = others.length
+      ? '<div><div class="side-t">Validés dans le même lot</div>'+others.map(x=>'<div class="kv"><span class="k">'+esc(x.field_label||x.change_field)+'</span><span class="v">'+esc(x.current_value||'—')+' → '+esc(x.proposed_value||'—')+'</span></div>').join('')+'</div>'
+      : '';
+    document.getElementById('ov').hidden = false;
+    document.getElementById('mo-cancel').focus();
+  }
+  function closeModal(){ document.getElementById('ov').hidden = true; target = null; }
+
+  async function load(){
+    const r = unwrap(await API.calendarPendingQueue());
+    items = r.items; render();
+  }
+
+  document.getElementById('vq').addEventListener('click', async e=>{
+    const ok = e.target.closest('[data-ok]'), no = e.target.closest('[data-refuse]');
+    if(no){
+      UI.emModal({ title:'Écarter ces propositions ?', body:'L’ancienne valeur demeure. Rien ne change pour les candidats.',
+        submitLabel:'Écarter', danger:true, onSubmit: async ()=>{ await API.calendarRejectChanges(no.dataset.refuse); UI.emToast('Demande refusée.','success'); load(); } });
+      return;
+    }
+    if(!ok) return;
+    const g = groups().filter(x=>x.s.name === ok.dataset.ok)[0];
+    if(kindOf(g).warn){ openModal(g); return; }
+    try{ await API.calendarValidateChanges(g.s.name); UI.emToast('Validé. La nouvelle valeur s’applique.','success'); load(); }
+    catch(err){ UI.emToast(err && err.message ? err.message : 'Validation refusée.', 'error'); }
+  });
+
+  document.getElementById('mo-cancel').addEventListener('click', closeModal);
+  document.getElementById('mo-x').addEventListener('click', closeModal);
+  document.getElementById('ov').addEventListener('click', e=>{ if(e.target.id === 'ov') closeModal(); });
+  document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && !document.getElementById('ov').hidden) closeModal(); });
+  document.getElementById('mo-ok').addEventListener('click', async e=>{
+    const btn = e.currentTarget, g = target, n = g.s.convocation_count;
+    btn.disabled = true;
+    try{
+      const res = unwrap(await API.calendarValidateChanges(g.s.name));
+      closeModal();
+      UI.emToast(res.reissue_triggered ? 'Report validé — '+n+' convocations réémises.' : 'Validé.', 'success');
+      load();
+    } catch(err){ UI.emToast(err && err.message ? err.message : 'Validation refusée.', 'error'); }
+    finally{ btn.disabled = false; }
+  });
+
+  window.onEmelaRole = function(r){ role = r; render(); };
+  load();
+})();
+</script>
+</Layout>
