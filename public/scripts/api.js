@@ -440,6 +440,31 @@
       return request('/api/method/admission.api.calendar.reject_changes',
         { method: 'POST', body: { session } });
     },
+
+    /* ---- NOTES-CONCOURS : saisie des notes de concours (staff.py) ---- */
+    notesPrepaSessions() { return staffCall('list_prepa_sessions'); },
+    notesRoster(session) { return staffCall('list_notes_roster', { params: { session_id: session } }); },
+    notesSetCoefficients(session, coefficients) {
+      return staffCall('set_exam_coefficients', { method: 'POST', body: { session_id: session, coefficients } });
+    },
+    notesSaisir(dossierId, notes) {
+      return staffCall('saisir_note_concours', { method: 'POST', body: { dossier_id: dossierId, notes } });
+    },
+    notesValider(dossierId) {
+      return staffCall('valider_notes_concours', { method: 'POST', body: { dossier_id: dossierId } });
+    },
+    notesExport(session) { return staffCall('export_notes_template', { params: { session_id: session } }); },
+    notesImportPreview(session, csvText) {
+      return staffCall('import_notes_preview', { method: 'POST', body: { session_id: session, csv_text: csvText } });
+    },
+    notesSaisirMasse(session, rows) {
+      return staffCall('saisir_notes_masse', { method: 'POST', body: { session_id: session, rows } });
+    },
+    notesCommitCsv(session, csvText) {
+      return staffCall('saisir_notes_masse', { method: 'POST', body: { session_id: session, csv_text: csvText } });
+    },
+    notesValiderMassePreview(session) { return staffCall('valider_notes_masse_preview', { params: { session_id: session } }); },
+    notesValiderMasse(session) { return staffCall('valider_notes_masse', { method: 'POST', body: { session_id: session } }); },
   };
 
   window.EmelaAPI = API;

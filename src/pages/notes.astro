@@ -1,0 +1,276 @@
+---
+/* NOTES-CONCOURS — saisie des notes de concours (Prépa). Le front est un PUR RENDERER : plage,
+   moyenne, signal éliminatoire et coefficients viennent du back (source unique exam_grading).
+   « Le système signale, le Responsable décide » — aucune décision calculée ici.
+   Données : admission.api.staff.{list_prepa_sessions, list_notes_roster, set_exam_coefficients,
+   saisir_notes_masse, export_notes_template, import_notes_preview, valider_notes_concours}. */
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Saisie des notes — emela management" role="admin" page="notes" shared={true}>
+<main class="page" id="main-content">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Saisie des notes de concours</h1>
+      <p class="page-sub" id="sub">Choisissez une session à concours.</p>
+    </div>
+    <div style="display:flex;gap:var(--space-3)">
+      <button type="button" class="em-btn em-btn--secondary em-btn--sm" id="btn-export" hidden><svg class="ico-sm"><use href="#i-file"/></svg>Exporter (CSV)</button>
+      <label class="em-btn em-btn--secondary em-btn--sm" id="btn-import-l" hidden style="cursor:pointer;margin:0"><svg class="ico-sm"><use href="#i-tray"/></svg>Importer un fichier<input type="file" id="file-import" accept=".csv,text/csv" hidden></label>
+    </div>
+  </div>
+
+  <div class="nt-field">
+    <label class="nt-lbl" for="sess">Session</label>
+    <select class="nt-sel" id="sess"><option value="">— choisir une session —</option></select>
+  </div>
+
+  <section class="card" id="coef-card" hidden>
+    <div class="card-head">
+      <div><div class="card-title">Coefficients des épreuves</div><div class="card-sub">Identiques pour tous les candidats de la session.</div></div>
+      <span class="em-badge em-badge--neutral em-badge--sm" id="coef-state"></span>
+    </div>
+    <div class="card-body">
+      <p class="nt-help" id="coef-help"></p>
+      <div id="coef-fields" class="nt-coef"></div>
+    </div>
+  </section>
+
+  <div class="em-alert em-alert--neutral" id="signal-note" hidden>
+    <span class="em-alert-icon"><svg class="ico"><use href="#i-eye"/></svg></span>
+    <div class="em-alert-body"><span class="em-alert-text"><b>La moyenne et le signal « éliminatoire » sont indicatifs.</b> Une note strictement inférieure à 6 sur une épreuve est signalée, épreuve par épreuve — <b>la décision revient au Responsable</b> (aucune élimination automatique).</span></div>
+  </div>
+
+  <div id="imp-host"></div>
+  <div id="roster"></div>
+  <div id="save-result"></div>
+
+  <div class="savebar" id="savebar" hidden>
+    <span class="nt-help" id="save-info">Saisissez les 3 notes /20 ou cochez « absent ». Les trois passent, ou aucune.</span>
+    <div style="display:flex;gap:var(--space-3)">
+      <button type="button" class="em-btn em-btn--secondary" id="btn-validate" hidden><svg class="ico-sm"><use href="#i-gavel"/></svg>Valider la session…</button>
+      <button type="button" class="em-btn em-btn--primary" id="btn-save"><svg class="ico-sm"><use href="#i-check"/></svg>Enregistrer les notes</button>
+    </div>
+  </div>
+</main>
+
+<style>
+  .nt-field{max-width:520px;margin-bottom:var(--space-6)}
+  .nt-lbl,.nt-help{display:block;font-size:var(--text-xs);color:var(--text-secondary)}
+  .nt-lbl{margin-bottom:6px;font-weight:600}
+  .nt-help{margin:0 0 var(--space-3)}
+  .nt-sel,.nt-in{font:inherit;padding:9px 11px;border:1px solid var(--border,#d9d9d9);border-radius:9px;background:var(--surface-paper,#fff);color:var(--text-primary,#171717)}
+  .nt-sel{width:100%}
+  .nt-in{width:70px;text-align:center}
+  .nt-in:focus,.nt-sel:focus{outline:2px solid var(--accent,#2b6cb0);outline-offset:1px;border-color:transparent}
+  .nt-coef{display:flex;gap:var(--space-4);flex-wrap:wrap;align-items:flex-end}
+  .nt-coef .cf{display:flex;flex-direction:column;gap:6px}
+  .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--space-4)}
+  .nt-moy{font-weight:700}
+  .nt-row.is-abs .nt-in{opacity:.35;pointer-events:none}
+  .imp-probs{margin:var(--space-3) 0 0;padding-left:1.1em;color:var(--text-secondary);font-size:var(--text-sm);max-height:220px;overflow:auto}
+  .imp-probs li{margin:2px 0}
+  .savebar{position:sticky;bottom:0;margin-top:var(--space-6);background:var(--surface-paper,#fff);border-top:1px solid var(--border-subtle,#eee);padding:14px 2px;display:flex;justify-content:space-between;align-items:center;gap:var(--space-4)}
+  .nt-abs{display:inline-flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:var(--text-sm)}
+</style>
+
+<script is:inline>
+(function(){
+  const API = window.EmelaAPI, UI = window.EmelaUI, esc = UI.esc;
+  let SUBJECTS = [], SESSION = null, DATA = null, CANSETCOEF = false, CANVALIDATE = false;
+  const $ = id => document.getElementById(id);
+  const coefSet = () => SUBJECTS.length && SUBJECTS.every(s => Number((DATA.coefficients||{})[s.key]) > 0);
+
+  function moyCell(c){
+    if(c.absent) return '<span class="em-badge em-badge--neutral em-badge--sm">Absent(e)</span>';
+    if(c.moyenne == null) return '<span style="color:var(--text-secondary)">—</span>';
+    let h = '<span class="nt-moy">' + esc(String(c.moyenne)) + '</span>';
+    if((c.eliminatoire||[]).length){
+      const labs = c.eliminatoire.map(k => (SUBJECTS.find(s => s.key===k)||{}).label || k).join(', ');
+      h += ' <span class="em-badge em-badge--warning em-badge--sm" title="Signal — le Responsable décide">éliminatoire : ' + esc(labs) + '</span>';
+    }
+    return h;
+  }
+
+  function renderCoef(){
+    const coefs = DATA.coefficients || {}, locked = DATA.coefficients_verrouilles, set = coefSet();
+    $('coef-card').hidden = false;
+    const st = $('coef-state');
+    st.textContent = locked ? 'verrouillés' : (set ? 'posés' : 'à poser');
+    st.className = 'em-badge em-badge--' + (locked ? 'neutral' : (set ? 'success' : 'warning')) + ' em-badge--sm';
+    const editable = CANSETCOEF && !locked;
+    $('coef-help').textContent = locked
+      ? 'Une note a déjà été saisie : la pondération est figée (on ne change pas les coefficients une fois la correction commencée).'
+      : (CANSETCOEF ? 'Posez la pondération de chaque épreuve avant de saisir les notes.'
+                    : 'La pondération est définie par le Responsable.');
+    let h = SUBJECTS.map(s => '<div class="cf"><label class="nt-lbl">' + esc(s.label) + '</label>' +
+      '<input class="nt-in coef-in" data-k="' + esc(s.key) + '" type="number" min="0.5" step="0.5" value="' +
+      (coefs[s.key] != null ? esc(String(coefs[s.key])) : '') + '"' + (editable ? '' : ' disabled') + '></div>').join('');
+    if(editable) h += '<button type="button" class="em-btn em-btn--primary em-btn--sm" id="coef-save">Enregistrer les coefficients</button>';
+    $('coef-fields').innerHTML = h;
+    if(editable) $('coef-save').addEventListener('click', saveCoef);
+    $('signal-note').hidden = !set;
+  }
+
+  async function saveCoef(){
+    const coefs = {};
+    $('coef-fields').querySelectorAll('.coef-in').forEach(inp => { coefs[inp.dataset.k] = inp.value; });
+    try { await API.notesSetCoefficients(SESSION, coefs); UI.emToast('Coefficients enregistrés.', 'success'); await load(SESSION); }
+    catch(e){ UI.emToast(e.message, 'error'); }
+  }
+
+  function renderRoster(){
+    const cs = DATA.candidats || [];
+    if(!coefSet()){
+      $('roster').innerHTML = '<div class="em-alert em-alert--warning"><span class="em-alert-icon"><svg class="ico"><use href="#i-hourglass"/></svg></span><div class="em-alert-body"><span class="em-alert-text">Posez d\'abord les coefficients ci-dessus.</span></div></div>';
+      $('savebar').hidden = true; return;
+    }
+    if(!cs.length){ $('roster').innerHTML = '<div class="card"><div class="card-body">Aucun convoqué pour cette session.</div></div>'; $('savebar').hidden = true; return; }
+    let h = '<div class="em-table-wrap"><table class="em-table"><thead><tr><th>N°</th><th>Nom et prénoms</th>' +
+      SUBJECTS.map(s => '<th style="text-align:center">' + esc(s.label) + '<br><span style="font-weight:400;text-transform:none">/20</span></th>').join('') +
+      '<th>Absent</th><th>Moyenne / signal</th></tr></thead><tbody>';
+    cs.forEach((c, i) => {
+      const v = c.valeurs || {};
+      h += '<tr class="nt-row' + (c.absent ? ' is-abs' : '') + '" data-id="' + esc(c.dossier_id) + '">' +
+        '<td>' + esc(c.numero_convocation || '—') + '</td>' +
+        '<td>' + esc(c.nom) + (c.validees ? ' <span class="em-badge em-badge--success em-badge--sm">validées</span>' : '') + '</td>' +
+        SUBJECTS.map(s => '<td style="text-align:center"><input class="nt-in" type="number" min="0" max="20" step="0.25" data-k="' + esc(s.key) + '" value="' +
+          (v[s.key] != null ? esc(String(v[s.key])) : '') + '"' + (c.validees ? ' disabled' : '') + '></td>').join('') +
+        '<td><label class="nt-abs"><input type="checkbox" class="nt-absck"' + (c.absent ? ' checked' : '') + (c.validees ? ' disabled' : '') + '> absent</label></td>' +
+        '<td>' + moyCell(c) + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+    $('roster').innerHTML = h;
+    $('savebar').hidden = false;
+    $('btn-validate').hidden = !(CANVALIDATE && cs.length);
+    $('roster').querySelectorAll('.nt-absck').forEach(ck => ck.addEventListener('change', e => {
+      e.target.closest('.nt-row').classList.toggle('is-abs', e.target.checked);
+    }));
+  }
+
+  async function validateSession(){
+    let prev;
+    try { prev = await API.notesValiderMassePreview(SESSION); }
+    catch(e){ UI.emToast(e.message, 'error'); return; }
+    if(!prev.a_valider){ UI.emToast('Aucune note en attente de validation dans cette session.', 'error'); return; }
+    UI.emModal({
+      title: 'Valider les notes de la session',
+      lead: 'Vous allez valider ' + prev.a_valider + ' dossier(s), dont ' + prev.avec_signal +
+            ' portant un signal éliminatoire. Cette validation confirme les notes — elle ne décide pas l\'admission.',
+      fields: [],
+      submitLabel: 'Valider ' + prev.a_valider + ' dossier(s)',
+      onSubmit: async () => {
+        const res = await API.notesValiderMasse(SESSION);
+        UI.emToast(res.valides + ' dossier(s) validé(s)' + (res.avec_signal ? ', dont ' + res.avec_signal + ' à signal éliminatoire.' : '.'), 'success');
+        await load(SESSION);
+      }
+    });
+  }
+
+  function collectRows(){
+    const rows = [];
+    $('roster').querySelectorAll('.nt-row').forEach(tr => {
+      const first = tr.querySelector('.nt-in');
+      if(first && first.disabled) return;              // déjà validées : intactes
+      const abs = tr.querySelector('.nt-absck').checked;
+      const row = { dossier_id: tr.dataset.id };
+      if(abs){ row.absent = '1'; rows.push(row); return; }
+      let any = false;
+      tr.querySelectorAll('input.nt-in').forEach(inp => { if(inp.value.trim() !== ''){ row[inp.dataset.k] = inp.value.trim(); any = true; } });
+      if(any) rows.push(row);                          // ligne vide → ignorée
+    });
+    return rows;
+  }
+
+  function reportResult(res){
+    const probs = res.problemes || [];
+    $('save-result').innerHTML = probs.length
+      ? '<div class="em-alert em-alert--warning" style="margin-top:var(--space-5)"><span class="em-alert-icon"><svg class="ico"><use href="#i-warning"/></svg></span><div class="em-alert-body"><span class="em-alert-text"><b>' + res.ecrits + '</b> enregistré(s), <b>' + probs.length + '</b> non écrit(s) :</span><ul class="imp-probs">' +
+        probs.map(p => '<li>' + esc((p.nom || p.reference || ('ligne ' + p.ligne)) + ' — ' + p.probleme) + '</li>').join('') + '</ul></div></div>'
+      : '';
+    UI.emToast(res.ecrits + ' candidat(s) enregistré(s)' + (probs.length ? ', ' + probs.length + ' anomalie(s).' : '.'), probs.length ? 'error' : 'success');
+  }
+
+  async function save(){
+    const rows = collectRows();
+    if(!rows.length){ UI.emToast('Aucune note à enregistrer.', 'error'); return; }
+    try { const res = await API.notesSaisirMasse(SESSION, rows); reportResult(res); await load(SESSION); }
+    catch(e){ UI.emToast(e.message, 'error'); }
+  }
+
+  async function doExport(){
+    try {
+      const r = await API.notesExport(SESSION);
+      const blob = new Blob([r.csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = r.filename || 'notes.csv';
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+    } catch(e){ UI.emToast(e.message, 'error'); }
+  }
+
+  function onImportFile(e){
+    const f = e.target.files[0]; if(!f) return;
+    const rd = new FileReader();
+    rd.onload = async () => {
+      e.target.value = '';
+      const csv = String(rd.result);
+      try { const prev = await API.notesImportPreview(SESSION, csv); showPreview(csv, prev); }
+      catch(err){ UI.emToast(err.message, 'error'); }
+    };
+    rd.readAsText(f);
+  }
+
+  function showPreview(csv, prev){
+    const probs = prev.problemes || [];
+    let h = '<div class="card" style="margin-bottom:var(--space-5)"><div class="card-head"><div class="card-title">Aperçu de l\'import</div></div><div class="card-body">' +
+      '<p><b>' + prev.compte_a_ecrire + '</b> candidat(s) seront enregistrés' + (probs.length ? ', <b>' + probs.length + '</b> ligne(s) en anomalie (non écrites) :' : '.') + '</p>';
+    if(probs.length) h += '<ul class="imp-probs">' + probs.map(p => '<li>' + esc((p.nom || p.reference || ('ligne ' + p.ligne)) + ' — ' + p.probleme) + '</li>').join('') + '</ul>';
+    h += '<div style="display:flex;gap:var(--space-3);margin-top:var(--space-4)">' +
+      '<button type="button" class="em-btn em-btn--primary em-btn--sm" id="imp-go"' + (prev.compte_a_ecrire ? '' : ' disabled') + '>Écrire ' + prev.compte_a_ecrire + ' candidat(s)</button>' +
+      '<button type="button" class="em-btn em-btn--ghost em-btn--sm" id="imp-cancel">Annuler</button></div></div></div>';
+    $('imp-host').innerHTML = h;
+    $('imp-go').addEventListener('click', async () => {
+      try { const res = await API.notesCommitCsv(SESSION, csv); $('imp-host').innerHTML = ''; reportResult(res); await load(SESSION); }
+      catch(e){ UI.emToast(e.message, 'error'); }
+    });
+    $('imp-cancel').addEventListener('click', () => { $('imp-host').innerHTML = ''; });
+  }
+
+  async function load(session){
+    SESSION = session;
+    ['imp-host', 'save-result', 'roster'].forEach(id => $(id).innerHTML = '');
+    $('coef-card').hidden = true; $('savebar').hidden = true; $('signal-note').hidden = true;
+    $('btn-export').hidden = true; $('btn-import-l').hidden = true;
+    if(!session){ $('sub').textContent = 'Choisissez une session à concours.'; return; }
+    try {
+      DATA = await API.notesRoster(session);
+      SUBJECTS = (DATA.subjects && DATA.subjects.subjects) || [];
+      $('sub').textContent = (DATA.candidats || []).length + ' convoqué(s) · ordre de la feuille d\'émargement';
+      $('btn-export').hidden = false;
+      $('btn-import-l').hidden = !coefSet();
+      renderCoef();
+      renderRoster();
+    } catch(e){ $('roster').innerHTML = '<div class="card"><div class="card-body">' + esc(e.message) + '</div></div>'; }
+  }
+
+  async function init(){
+    let me; try { me = await API.whoami(); } catch(e){ return; }
+    const ux = API.uxRole(me.roles || []);
+    CANSETCOEF = ['resp', 'dir', 'sm'].includes(ux);
+    CANVALIDATE = ['resp', 'sm'].includes(ux);   // Responsable EXACT — Direction exclue (requirement 1)
+    $('btn-export').addEventListener('click', doExport);
+    $('file-import').addEventListener('change', onImportFile);
+    $('btn-save').addEventListener('click', save);
+    $('btn-validate').addEventListener('click', validateSession);
+    $('sess').addEventListener('change', e => load(e.target.value));
+    try {
+      const r = await API.notesPrepaSessions();
+      $('sess').innerHTML = '<option value="">— choisir une session —</option>' + (r.sessions || []).map(s =>
+        '<option value="' + esc(s.session_id) + '">' + esc(s.label + ' — ' + (s.programme_label || '') + (s.exam_date ? ' (' + API.fmtDate(s.exam_date) + ')' : '')) + '</option>').join('');
+    } catch(e){ UI.emToast(e.message, 'error'); }
+    const url = new URLSearchParams(location.search).get('session');
+    if(url){ $('sess').value = url; if($('sess').value) load(url); }
+  }
+  init();
+})();
+</script>
+</Layout>
