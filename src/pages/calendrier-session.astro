@@ -50,6 +50,12 @@ import '../styles/calendar.css';
         <div class="kv"><span class="k">Dossiers rattachés</span><span class="v" id="i-cand">—</span></div>
         <div class="kv"><span class="k">Convoqués</span><span class="v" id="i-conv">—</span></div>
         <div class="kv"><span class="k">Visible du candidat</span><span class="v" id="i-pub">—</span></div>
+        <div class="kv"><span class="k">Session suivante</span><span class="v" id="i-next">—</span></div>
+      </div>
+      <!-- CAL-AMEL (DEC-P) : journal de la session — lecture seule (API resource, READ_UP) -->
+      <div class="side-card">
+        <div class="side-t">Historique de la session</div>
+        <div id="sess-journal" class="sj"></div>
       </div>
       <div class="side-card" id="circ"></div>
       <div class="side-card">
@@ -166,6 +172,10 @@ import '../styles/calendar.css';
     document.getElementById('i-conv').textContent = s.convocation_count;
     document.getElementById('i-pub').innerHTML = st.pub
       ? '<span style="color:var(--success-700)">oui</span>' : '<span style="color:var(--text-tertiary)">non</span>';
+    /* AMEL-06-b : chaînage DÉRIVÉ servi par session_detail — jamais calculé ici */
+    document.getElementById('i-next').innerHTML = s.next_session
+      ? '<a href="/calendrier-session?s=' + encodeURIComponent(s.next_session.session) + '">' + esc(s.next_session.code) + '</a>'
+      : '<span style="color:var(--text-tertiary)">—</span>';
     document.getElementById('circ').innerHTML = circuit();
     document.getElementById('rules').innerHTML = rulesHtml();
     document.getElementById('src-dev').innerHTML = K.isDevHost()
@@ -272,9 +282,29 @@ import '../styles/calendar.css';
     }
   });
 
+  /* DEC-P : journal de la session — même patron que l'historique notes (resource + DocPerms). */
+  async function loadJournal(){
+    try {
+      const rows = await API.resource('Admission Session Change Log',
+        ['champ', 'old_value', 'new_value', 'action_type', 'author', 'at'],
+        { session: name }, 'at desc');
+      const dash = v => (v === '' || v == null) ? '—' : String(v);
+      document.getElementById('sess-journal').innerHTML = (rows && rows.length)
+        ? rows.map(r => '<div class="sj-row"><b>' + esc(String(r.at || '').slice(0, 16)) + '</b> · '
+            + esc(r.action_type || '') + ' — ' + esc(r.champ || '') + ' : '
+            + esc(dash(r.old_value) + ' → ' + dash(r.new_value))
+            + '<span class="sj-by"> par ' + esc(r.author || '') + '</span></div>').join('')
+        : '<p style="font-size:var(--text-xs);color:var(--text-secondary)">Aucun acte enregistré.</p>';
+    } catch(e){
+      document.getElementById('sess-journal').innerHTML =
+        '<p style="font-size:var(--text-xs);color:var(--text-secondary)">' + esc(e.message) + '</p>';
+    }
+  }
+
   async function load(){
     s = unwrap(await API.calendarSession(name));
     render();
+    loadJournal();
   }
 
   window.onEmelaRole = function(r){ role = r; draft = {}; if(s) render(); };

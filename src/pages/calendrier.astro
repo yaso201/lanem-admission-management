@@ -36,6 +36,15 @@ import '../styles/calendar.css';
     </div>
   </div>
 
+  <!-- CAL-AMEL (DEC-N) : bandeau « À traiter » — items calculés SERVEUR (GK9), ABSENT si vide -->
+  <div class="em-alert em-alert--warning" id="atraiter" hidden style="margin-bottom:var(--space-5)">
+    <span class="em-alert-icon"><svg class="ico"><use href="#i-warning"/></svg></span>
+    <div class="em-alert-body">
+      <div class="em-alert-title">À traiter</div>
+      <ul class="at-list" id="atraiter-list"></ul>
+    </div>
+  </div>
+
   <div class="em-alert em-alert--neutral" data-roles="admin" style="margin-bottom:var(--space-6)">
     <span class="em-alert-icon"><svg class="ico"><use href="#i-eye"/></svg></span>
     <div class="em-alert-body"><span class="em-alert-text"><b>Lecture seule.</b> La construction du calendrier relève du Responsable admission ; l’ouverture et les changements de date relèvent de la Direction.</span></div>
@@ -211,10 +220,21 @@ import '../styles/calendar.css';
     /* CAL-02 : filtre AVANT rendu — les tallies d'année et la frise suivent par construction ;
        une année vidée par le filtre est masquée ; l'ouverture d'accordéon passe par
        K.effectiveOpen (openAA jamais écrasé). */
+    /* DEC-N bandeau : la famille « pending » n'est montrée qu'à la Direction. */
+    const at = (data.a_traiter || []).filter(i => i.famille !== 'pending' || role === 'dir');
+    const ab = document.getElementById('atraiter');
+    ab.hidden = at.length === 0;   // pas de coquille vide
+    if(at.length) document.getElementById('atraiter-list').innerHTML = at.map(i =>
+      '<li><a href="' + esc(i.lien) + '">' + esc(i.code) + '</a> — ' + esc(i.detail) + '</li>').join('');
+    /* DEC-N archivage : les années ANTÉRIEURES à l'AA courante naissent repliées — courante =
+       la plus récente AA portant au moins une session PUBLIÉE (des brouillons d'année future
+       n'archivent pas le présent). openAA reste l'état UTILISATEUR (calque FIX-3 intact). */
+    const aaCourante = ((data.groups || []).find(g => g.sessions.some(s => s.lifecycle_state !== 'Draft'))
+      || (data.groups || [])[0] || {}).academic_year || '';
     let shown = 0, total = 0;
     visibleNames = new Set();
     document.getElementById('groups').innerHTML = data.groups.map((g,i)=>{
-      if(openAA[g.academic_year] === undefined) openAA[g.academic_year] = i === 0 ? 1 : 0;
+      if(openAA[g.academic_year] === undefined) openAA[g.academic_year] = g.academic_year >= aaCourante ? 1 : 0;
       total += g.sessions.length;
       let list = g.sessions.filter(s=>K.sessionMatches(s, flt));
       shown += list.length;

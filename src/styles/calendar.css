@@ -51,6 +51,15 @@
 .ss--ech{background:var(--warning-50);color:var(--warning-700);border:1px solid var(--warning-100)}
 .ss--ech .d{background:var(--warning-500)}
 
+/* ---------- CAL-AMEL : bandeau À traiter (DEC-N) + journal session (DEC-P) ---------- */
+.at-list{margin:var(--space-2) 0 0;padding-left:1.1em;font-size:var(--text-sm)}
+.at-list li{margin:3px 0}
+.at-list a{font-weight:600}
+.sj{max-height:260px;overflow:auto}
+.sj-row{padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:var(--text-xs);line-height:1.45}
+.sj-row:last-child{border-bottom:0}
+.sj-by{color:var(--text-tertiary)}
+
 /* ---------- CAL-02 : filtres, recherche, tri ---------- */
 .cal-filters{display:flex;align-items:flex-end;gap:var(--space-4);flex-wrap:wrap;margin-bottom:var(--space-5)}
 .cal-filters .em-field{margin:0}
