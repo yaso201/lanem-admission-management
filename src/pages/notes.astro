@@ -166,8 +166,13 @@ import Layout from '../layouts/Layout.astro';
       h += '<tr class="nt-row' + (c.absent ? ' is-abs' : '') + '" data-id="' + esc(c.dossier_id) + '" data-nom="' + esc(c.nom) + '">' +
         '<td>' + esc(c.numero_convocation || '—') + '</td>' +
         '<td>' + esc(c.nom) + (c.validees ? ' <span class="em-badge em-badge--success em-badge--sm">validées</span>' : '') + '</td>' +
-        SUBJECTS.map(s => '<td style="text-align:center"><input class="nt-in" type="number" min="0" max="20" step="0.25" data-k="' + esc(s.key) + '" value="' +
-          (v[s.key] != null ? esc(String(v[s.key])) : '') + '"' + (c.validees ? ' disabled' : '') + '></td>').join('') +
+        /* C2 : type="text" inputmode="decimal" — PAS type="number" : sous Chrome, « 12,5 » y est
+           rejeté par le navigateur → value="" → perte SILENCIEUSE (variante du mal NT-01). Le
+           clavier numérique mobile est conservé ; la plage reste jugée par noteError (A10).
+           C1 (DEC-H) : une ligne ABSENTE naît avec ses cellules réellement disabled (pas
+           seulement pointer-events:none — Tab n'y entre plus). */
+        SUBJECTS.map(s => '<td style="text-align:center"><input class="nt-in" type="text" inputmode="decimal" data-k="' + esc(s.key) + '" value="' +
+          (v[s.key] != null ? esc(String(v[s.key])) : '') + '"' + ((c.validees || c.absent) ? ' disabled' : '') + '></td>').join('') +
         '<td><label class="nt-abs"><input type="checkbox" class="nt-absck"' + (c.absent ? ' checked' : '') + (c.validees ? ' disabled' : '') + '> absent</label></td>' +
         '<td>' + moyCell(c) + '</td></tr>';
     });
@@ -178,13 +183,46 @@ import Layout from '../layouts/Layout.astro';
     const inputs = Array.from($('roster').querySelectorAll('input.nt-in'));
     inputs.forEach((inp, i) => {
       inp.addEventListener('input', validateRoster);
-      inp.addEventListener('keydown', e => {   // A11 : Entrée passe au champ suivant (saisie au clavier)
-        if(e.key === 'Enter'){ e.preventDefault(); (inputs[i + 1] || $('btn-save')).focus(); }
+      inp.addEventListener('keydown', e => {
+        /* C10 (patron Single view) : Entrée = MÊME COLONNE, ligne suivante — la saisie en salle
+           descend une colonne d'épreuve. La liste est en ordre ligne-major → +SUBJECTS.length.
+           Tab traverse la ligne (ordre DOM natif, rien à câbler). */
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          let j = i + SUBJECTS.length;
+          while(inputs[j] && inputs[j].disabled) j += SUBJECTS.length;   // saute absents/validées
+          (inputs[j] || $('btn-save')).focus();
+        }
       });
     });
+    /* C1 (DEC-H) : plus AUCUN chemin où des notes tapées partent à la poubelle en silence.
+       4 chemins : sans notes → désactivation directe · avec notes → CONFIRMATION (annulée =
+       coche annulée, notes intactes) · décoché → cellules réactivées, vides. */
     $('roster').querySelectorAll('.nt-absck').forEach(ck => ck.addEventListener('change', e => {
-      e.target.closest('.nt-row').classList.toggle('is-abs', e.target.checked);
-      validateRoster();
+      const tr = e.target.closest('.nt-row');
+      const cells = Array.from(tr.querySelectorAll('input.nt-in'));
+      const markAbsent = () => {
+        cells.forEach(inp => { inp.value = ''; inp.disabled = true; inp.classList.remove('nt-invalid'); inp.removeAttribute('title'); });
+        e.target.checked = true;
+        tr.classList.add('is-abs');
+        validateRoster();
+      };
+      if(e.target.checked){
+        const filled = cells.filter(inp => inp.value.trim() !== '');
+        if(!filled.length){ markAbsent(); return; }
+        e.target.checked = false;   // état inchangé tant que non confirmé (annuler = ne rien perdre)
+        UI.emModal({
+          title: 'Marquer absent(e)',
+          lead: 'Effacer les ' + filled.length + ' note(s) saisie(s) de ' + (tr.dataset.nom || tr.dataset.id) +
+                ' ? Un(e) absent(e) n\'a ni notes ni moyenne.',
+          fields: [], submitLabel: 'Effacer et marquer absent(e)', danger: true,
+          onSubmit: async () => { markAbsent(); }
+        });
+      } else {
+        cells.forEach(inp => { inp.disabled = false; inp.value = ''; });
+        tr.classList.remove('is-abs');
+        validateRoster();
+      }
     }));
     validateRoster();
   }
@@ -252,19 +290,43 @@ import Layout from '../layouts/Layout.astro';
       const row = { dossier_id: tr.dataset.id };
       if(abs){ row.absent = '1'; rows.push(row); return; }
       let any = false;
-      tr.querySelectorAll('input.nt-in').forEach(inp => { if(inp.value.trim() !== ''){ row[inp.dataset.k] = inp.value.trim(); any = true; } });
+      /* C2 : normalisation « , » → « . » à l'ENVOI — le serveur fait float(), « 12,5 » y
+         échouerait ; l'écran accepte la virgule française, le contrat parle en point. */
+      tr.querySelectorAll('input.nt-in').forEach(inp => { if(inp.value.trim() !== ''){ row[inp.dataset.k] = inp.value.trim().replace(',', '.'); any = true; } });
       if(any) rows.push(row);                          // ligne vide → ignorée
     });
     return rows;
+  }
+
+  /* C5 : chaque anomalie s'affiche « Ligne N · nom — motif » — le n° de ligne (TOUJOURS servi
+     par le back sur les anomalies d'import) prime ; `reference` (« ? ») ne s'affiche plus jamais.
+     Les anomalies d'ÉCRITURE (post-aperçu) n'ont pas de ligne → nom/dossier. */
+  function probLine(p){
+    const who = p.ligne != null
+      ? 'Ligne ' + p.ligne + (p.nom ? ' · ' + p.nom : '')
+      : (p.nom || p.dossier_id || 'Dossier');
+    return who + ' — ' + p.probleme;
   }
 
   function reportResult(res){
     const probs = res.problemes || [];
     $('save-result').innerHTML = probs.length
       ? '<div class="em-alert em-alert--warning" style="margin-top:var(--space-5)"><span class="em-alert-icon"><svg class="ico"><use href="#i-warning"/></svg></span><div class="em-alert-body"><span class="em-alert-text"><b>' + res.ecrits + '</b> enregistré(s), <b>' + probs.length + '</b> non écrit(s) :</span><ul class="imp-probs">' +
-        probs.map(p => '<li>' + esc((p.nom || p.reference || ('ligne ' + p.ligne)) + ' — ' + p.probleme) + '</li>').join('') + '</ul></div></div>'
+        probs.map(p => '<li>' + esc(probLine(p)) + '</li>').join('') + '</ul></div></div>'
       : '';
     UI.emToast(res.ecrits + ' candidat(s) enregistré(s)' + (probs.length ? ', ' + probs.length + ' anomalie(s).' : '.'), probs.length ? 'error' : 'success');
+  }
+
+  /* DEC-I : un message GLOBAL actionnable (fichier corrompu) mérite un BANDEAU PERSISTANT —
+     un toast fugace disparaît avant d'être lu. Les autres erreurs restent en toast. */
+  function showImportError(err){
+    if(err && err.code === 'CSV_MOJIBAKE'){
+      $('imp-host').innerHTML =
+        '<div class="em-alert em-alert--error" style="margin-bottom:var(--space-5)"><span class="em-alert-icon"><svg class="ico"><use href="#i-warning"/></svg></span>' +
+        '<div class="em-alert-body"><div class="em-alert-title">Fichier rejeté</div><span class="em-alert-text">' + esc(err.message) + '</span></div></div>';
+    } else {
+      UI.emToast(err && err.message ? err.message : 'Import impossible.', 'error');
+    }
   }
 
   async function save(){
@@ -292,7 +354,7 @@ import Layout from '../layouts/Layout.astro';
       e.target.value = '';
       const csv = String(rd.result);
       try { const prev = await API.notesImportPreview(SESSION, csv); showPreview(csv, prev); }
-      catch(err){ UI.emToast(err.message, 'error'); }
+      catch(err){ showImportError(err); }
     };
     rd.readAsText(f);
   }
@@ -301,14 +363,16 @@ import Layout from '../layouts/Layout.astro';
     const probs = prev.problemes || [];
     let h = '<div class="card" style="margin-bottom:var(--space-5)"><div class="card-head"><div class="card-title">Aperçu de l\'import</div></div><div class="card-body">' +
       '<p><b>' + prev.compte_a_ecrire + '</b> candidat(s) seront enregistrés' + (probs.length ? ', <b>' + probs.length + '</b> ligne(s) en anomalie (non écrites) :' : '.') + '</p>';
-    if(probs.length) h += '<ul class="imp-probs">' + probs.map(p => '<li>' + esc((p.nom || p.reference || ('ligne ' + p.ligne)) + ' — ' + p.probleme) + '</li>').join('') + '</ul>';
+    if(probs.length) h += '<ul class="imp-probs">' + probs.map(p => '<li>' + esc(probLine(p)) + '</li>').join('') + '</ul>';
+    // C5 : à 0 importable, le bouton reste inerte — un texte dit QUOI FAIRE au lieu d'une impasse
+    if(!prev.compte_a_ecrire) h += '<p style="color:var(--text-secondary);font-size:var(--text-sm)">Aucune ligne importable — corrigez les anomalies ci-dessus ou vérifiez le fichier (séparateur, en-têtes, identifiants), puis réimportez.</p>';
     h += '<div style="display:flex;gap:var(--space-3);margin-top:var(--space-4)">' +
       '<button type="button" class="em-btn em-btn--primary em-btn--sm" id="imp-go"' + (prev.compte_a_ecrire ? '' : ' disabled') + '>Écrire ' + prev.compte_a_ecrire + ' candidat(s)</button>' +
       '<button type="button" class="em-btn em-btn--ghost em-btn--sm" id="imp-cancel">Annuler</button></div></div></div>';
     $('imp-host').innerHTML = h;
     $('imp-go').addEventListener('click', async () => {
       try { const res = await API.notesCommitCsv(SESSION, csv); $('imp-host').innerHTML = ''; reportResult(res); await load(SESSION); }
-      catch(e){ UI.emToast(e.message, 'error'); }
+      catch(e){ showImportError(e); }
     });
     $('imp-cancel').addEventListener('click', () => { $('imp-host').innerHTML = ''; });
   }
