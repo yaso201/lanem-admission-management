@@ -409,10 +409,19 @@ import Layout from '../layouts/Layout.astro';
       html += '</div></div>';
     });
     if(D.acompte_xof) html += '<div class="pay-row"><div><div class="pay-name">Acompte de scolarité</div><div class="pay-meta"><span>Encaissé avec le frais 2 · transmis à UF</span></div></div><div class="pay-side"><div class="pay-amt">'+esc(API.fmtXOF(D.acompte_xof))+'</div></div></div>';
+    // CONVOCATION-PREPA : édition au guichet (session à épreuve + paiement confirmé). Sans garde de session.
+    if(D.convocation && D.convocation.available){
+      html += '<div class="pay-row"><div><div class="pay-name">Convocation au concours</div><div class="pay-meta"><span>'+
+        (D.convocation.numero? 'N° '+esc(D.convocation.numero) : 'Prête à éditer')+'</span></div></div>'+
+        '<div class="pay-side"><button class="em-btn em-btn--secondary em-btn--sm" data-convocation="1"><svg class="ico-sm"><use href="#i-file"/></svg>Convocation PDF</button></div></div>';
+    }
     $('pay-body').innerHTML = html || '<p class="t-body-sm t-muted" style="margin:0">Aucun frais émis.</p>';
 
     $('pay-body').querySelectorAll('[data-receipt]').forEach(b=> b.addEventListener('click', ()=>{
       API.downloadReceipt(b.dataset.receipt).catch(e=>UI.emToast(e.message,'error'));
+    }));
+    $('pay-body').querySelectorAll('[data-convocation]').forEach(b=> b.addEventListener('click', ()=>{
+      API.downloadConvocation(ID).catch(e=>UI.emToast(e.message,'error'));
     }));
     $('pay-body').querySelectorAll('[data-confirm]').forEach(b=> b.addEventListener('click', ()=> confirmPaymentModal(b.dataset.confirm)));
     $('pay-body').querySelectorAll('[data-online]').forEach(b=> b.addEventListener('click', ()=> onlineModal(b.dataset.online)));
