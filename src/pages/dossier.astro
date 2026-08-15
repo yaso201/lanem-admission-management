@@ -25,6 +25,22 @@ import Layout from '../layouts/Layout.astro';
   .dh-sub .code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); background: var(--sand-50); border: 1px solid var(--border-subtle); padding: 2px 7px; border-radius: var(--radius-xs); }
   .dh-status { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-3); }
 
+  /* DOUBLONS-VUE — information staff, jamais une garde du parcours candidat. */
+  .related-banner { display: flex; align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-6); padding: var(--space-5) var(--space-6); background: var(--warning-50); border: 1px solid var(--warning-200); border-radius: var(--radius-lg); }
+  .related-banner > svg { flex-shrink: 0; margin-top: 1px; color: var(--warning-700); }
+  .related-main { flex: 1; min-width: 0; }
+  .related-title { font-size: var(--text-sm); font-weight: 700; color: var(--warning-700); }
+  .related-explain { margin: 2px 0 0; font-size: var(--text-xs); line-height: var(--leading-normal); color: var(--text-secondary); }
+  .related-list { display: grid; gap: var(--space-3); margin-top: var(--space-4); }
+  .related-row { display: grid; grid-template-columns: minmax(130px,auto) minmax(0,1fr) auto; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-4); color: inherit; text-decoration: none; background: var(--surface-paper); border: 1px solid var(--warning-200); border-radius: var(--radius-sm); }
+  .related-row:hover { border-color: var(--warning-500); }
+  .related-row:focus-visible { outline: 0; border-color: var(--border-focus); box-shadow: var(--shadow-focus); }
+  .related-code { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; color: var(--ink-800); }
+  .related-context { min-width: 0; font-size: var(--text-xs); color: var(--text-secondary); }
+  .related-context b { color: var(--text-primary); font-weight: 600; }
+  .related-state { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); white-space: nowrap; }
+  @media (max-width: 680px){ .related-row { grid-template-columns: 1fr; gap: var(--space-2); } .related-state { justify-content: flex-start; } }
+
   /* Pipeline workflow */
   .flow { display: flex; align-items: flex-start; margin-top: var(--space-8); padding-top: var(--space-7); border-top: 1px solid var(--border-subtle); }
   /* R-03 : pipeline défilable plutôt que tassé sur mobile */
@@ -181,6 +197,15 @@ import Layout from '../layouts/Layout.astro';
     <div class="flow" id="flow"></div>
   </section>
 
+  <aside class="related-banner" id="related-banner" hidden aria-live="polite">
+    <svg class="ico-lg" aria-hidden="true"><use href="#i-info"/></svg>
+    <div class="related-main">
+      <div class="related-title" id="related-title"></div>
+      <p class="related-explain">Correspondance fondée sur la même adresse e-mail. Les candidatures multiples sont autorisées ; cette information n’est pas bloquante.</p>
+      <div class="related-list" id="related-list"></div>
+    </div>
+  </aside>
+
   <div class="grid">
     <div class="col-main">
       <div class="aco-banner" id="aco-banner" hidden>
@@ -305,8 +330,32 @@ import Layout from '../layouts/Layout.astro';
     stEl.innerHTML = '<span class="st-dot"></span>'+esc(st.l)+'<span class="st-code">'+esc(D.statut)+'</span>';
     $('dh-statemeta').textContent = 'Déposé le '+API.fmtDate(D.soumis_le)+(D.person_id?' · person_id '+D.person_id:'');
 
-    renderFlow(); renderPieces(); renderPay(); renderNotes(); renderBourses(); renderTimeline(); renderSummary(); renderActions();
+    renderRelated(); renderFlow(); renderPieces(); renderPay(); renderNotes(); renderBourses(); renderTimeline(); renderSummary(); renderActions();
     $('aco-banner').hidden = D.statut !== 'ACO';
+  }
+
+  function renderRelated(){
+    const rows = Array.isArray(D.related_dossiers) ? D.related_dossiers : [];
+    const banner = $('related-banner');
+    if(!rows.length){
+      banner.hidden = true;
+      $('related-title').textContent = '';
+      $('related-list').innerHTML = '';
+      return;
+    }
+    const n = rows.length;
+    banner.hidden = false;
+    $('related-title').textContent = n+' autre'+(n>1?'s':'')+' dossier'+(n>1?'s':'')+' associé'+(n>1?'s':'')+' à cette identité technique — même adresse e-mail';
+    $('related-list').innerHTML = rows.map(r=>{
+      const st = STATUS[r.statut] || {l:r.statut||'—'};
+      const programme = (r.programme && (r.programme.label||r.programme.code)) || 'Programme non renseigné';
+      const session = (r.session && (r.session.label||r.session.id)) || 'Session non renseignée';
+      const clos = r.etat === 'clos';
+      return '<a class="related-row" href="/dossier?c='+encodeURIComponent(r.dossier_id)+'" aria-label="Ouvrir le dossier associé '+esc(r.dossier_id)+'">'+
+        '<span class="related-code">'+esc(r.dossier_id)+'</span>'+
+        '<span class="related-context"><b>'+esc(programme)+'</b> · '+esc(session)+' · '+esc(st.l)+' · déposé le '+esc(API.fmtDate(r.soumis_le))+'</span>'+
+        '<span class="related-state"><span class="em-badge em-badge--'+(clos?'neutral':'success')+' em-badge--sm">'+(clos?'Clos':'Actif')+'</span><svg class="row-go" aria-hidden="true"><use href="#i-caretright"/></svg></span></a>';
+    }).join('');
   }
 
   function renderFlow(){
@@ -409,7 +458,7 @@ import Layout from '../layouts/Layout.astro';
       html += '</div></div>';
     });
     if(D.acompte_xof) html += '<div class="pay-row"><div><div class="pay-name">Acompte de scolarité</div><div class="pay-meta"><span>Encaissé avec le frais 2 · transmis à UF</span></div></div><div class="pay-side"><div class="pay-amt">'+esc(API.fmtXOF(D.acompte_xof))+'</div></div></div>';
-    // CONVOCATION-PREPA : édition au guichet (session à épreuve + paiement confirmé). Sans garde de session.
+    // CONVOCATION-PREPA : staff.py sert available si session Open, date d'épreuve et frais 1 confirmé.
     if(D.convocation && D.convocation.available){
       html += '<div class="pay-row"><div><div class="pay-name">Convocation au concours</div><div class="pay-meta"><span>'+
         (D.convocation.numero? 'N° '+esc(D.convocation.numero) : 'Prête à éditer')+'</span></div></div>'+
