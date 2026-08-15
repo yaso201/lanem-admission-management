@@ -51,6 +51,19 @@ import '../styles/calendar.css';
     </div>
   </div>
 
+  <!-- CAL-02 : filtre + recherche + compteur — côté client, le serveur sert déjà tout -->
+  <div class="cal-filters">
+    <div class="em-field"><label class="em-field-label" for="flt-q">Rechercher</label>
+      <input class="em-input" type="search" id="flt-q" placeholder="Libellé ou code…" autocomplete="off" /></div>
+    <div class="em-field"><label class="em-field-label" for="flt-prog">Programme</label>
+      <select class="em-input" id="flt-prog"><option value="">Tous</option></select></div>
+    <div class="em-field"><label class="em-field-label" for="flt-state">État</label>
+      <select class="em-input" id="flt-state"><option value="">Tous</option>
+        <option value="Draft">Brouillon</option><option value="Open">Ouverte</option><option value="Closed">Fermée</option></select></div>
+    <span class="flt-count" id="flt-count" aria-live="polite" hidden></span>
+    <button type="button" class="em-btn em-btn--ghost em-btn--sm" id="flt-reset" hidden>Réinitialiser</button>
+  </div>
+
   <div id="groups"><div style="display:flex;flex-direction:column;gap:8px;padding:var(--space-6)"><div class="em-skeleton em-skeleton--title"></div><div class="em-skeleton em-skeleton--text"></div><div class="em-skeleton em-skeleton--text em-skeleton--text-short"></div></div></div>
 
   <div class="selbar" id="selbar" hidden>
@@ -66,6 +79,24 @@ import '../styles/calendar.css';
   const API = window.EmelaAPI, UI = window.EmelaUI, K = window.EmelaCal, esc = UI.esc;
   const sel = new Set();
   let view = 'dense', role = 'resp', data = null, openAA = {};
+  /* CAL-02 : filtres cumulables + tri. openFlt = calque d'accordéon TRANSITOIRE pendant un
+     filtre (cf. K.effectiveOpen) — openAA (état utilisateur) n'est jamais écrasé. */
+  let flt = { q: '', prog: '', state: '' }, sortKey = null, sortDir = 1, openFlt = {};
+  let visibleNames = new Set();
+  const filtersActive = () => !!(flt.q || flt.prog || flt.state);
+
+  const SORTABLE = { opens_on: 1, closes_on: 1, exam_date: 1, applicant_count: 1 };
+  function sortList(arr){
+    const k = sortKey, dir = sortDir;
+    return [...arr].sort((a,b)=>{
+      const va = a[k], vb = b[k];
+      const ea = va === null || va === undefined || va === '', eb = vb === null || vb === undefined || vb === '';
+      if(ea && eb) return 0;
+      if(ea) return 1;   // vides en fin, quel que soit le sens
+      if(eb) return -1;
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
+    });
+  }
 
   function cellDate(s, f){
     const pol = (s.policies||{})[f] || {}, p = K.pendingOf(s, f);
@@ -116,10 +147,18 @@ import '../styles/calendar.css';
       + '<div class="sr-act">'+actions(s)+'</div></div>';
   }
 
+  /* CAL-02 : en-tête triable — cycle none → ascending → descending → none (retour ordre
+     serveur). aria-sort porte l'état courant. */
+  function sortBtn(key, label){
+    const on = sortKey === key;
+    const aria = on ? (sortDir === 1 ? 'ascending' : 'descending') : 'none';
+    return '<button type="button" class="sr-sort'+(on?' is-on':'')+'" data-sortk="'+key+'" aria-sort="'+aria+'"'
+      + ' aria-label="Trier par '+label+'">'+label+'<span class="arr" aria-hidden="true">'+(on ? (sortDir === 1 ? '▲' : '▼') : '')+'</span></button>';
+  }
   function headDense(){
     return '<div class="sr sr-head"><span></span><div>Session</div>'
-      + K.DATE_FIELDS.map(f=>'<div>'+f.short+'</div>').join('')
-      + '<div>Dossiers</div><div>État</div><div></div></div>';
+      + K.DATE_FIELDS.map(f=>'<div>'+(SORTABLE[f.k] ? sortBtn(f.k, f.short) : f.short)+'</div>').join('')
+      + '<div>'+sortBtn('applicant_count','Dossiers')+'</div><div>État</div><div></div></div>';
   }
 
   /* Frise : une barre ouverture→clôture, un point d'épreuve, un fantôme par changement proposé. */
@@ -167,14 +206,26 @@ import '../styles/calendar.css';
 
   function render(){
     if(!data) return;
+    /* CAL-02 : filtre AVANT rendu — les tallies d'année et la frise suivent par construction ;
+       une année vidée par le filtre est masquée ; l'ouverture d'accordéon passe par
+       K.effectiveOpen (openAA jamais écrasé). */
+    let shown = 0, total = 0;
+    visibleNames = new Set();
     document.getElementById('groups').innerHTML = data.groups.map((g,i)=>{
       if(openAA[g.academic_year] === undefined) openAA[g.academic_year] = i === 0 ? 1 : 0;
-      const list = g.sessions, n = {Draft:0,Open:0,Closed:0};
+      total += g.sessions.length;
+      let list = g.sessions.filter(s=>K.sessionMatches(s, flt));
+      shown += list.length;
+      if(filtersActive() && !list.length) return '';
+      if(sortKey) list = sortList(list);
+      list.forEach(s=>visibleNames.add(s.name));
+      const open = K.effectiveOpen(g.academic_year, filtersActive(), openAA, openFlt) ? 1 : 0;
+      const n = {Draft:0,Open:0,Closed:0};
       list.forEach(s=>{ n[s.lifecycle_state] = (n[s.lifecycle_state]||0)+1; });
       const pend = list.reduce((k,s)=>k+(s.pending||[]).length,0);
       const body = view==='dense' ? '<div class="cd cd-scroll">'+headDense()+list.map(rowDense).join('')+'</div>' : frise(list);
-      return '<section class="aa" data-open="'+(openAA[g.academic_year]?1:0)+'">'
-        + '<button type="button" class="aa-head" data-toggle="'+esc(g.academic_year)+'" aria-expanded="'+(openAA[g.academic_year]?'true':'false')+'">'
+      return '<section class="aa" data-open="'+open+'">'
+        + '<button type="button" class="aa-head" data-toggle="'+esc(g.academic_year)+'" aria-expanded="'+(open?'true':'false')+'">'
         + '<svg class="ico aa-chev"><use href="#i-caretdown"/></svg><span class="aa-yr">'+esc(g.academic_year)+'</span>'
         + '<span class="aa-spacer"></span><span class="aa-counts">'
         + (n.Open?'<span><b>'+n.Open+'</b> ouverte'+(n.Open>1?'s':'')+'</span>':'')
@@ -183,6 +234,10 @@ import '../styles/calendar.css';
         + (pend?'<span style="color:var(--warning-700)"><b style="color:var(--warning-700)">'+pend+'</b> en attente</span>':'')
         + '</span></button><div class="aa-body">'+body+'</div></section>';
     }).join('');
+    const fc = document.getElementById('flt-count'), fr = document.getElementById('flt-reset');
+    fc.hidden = !filtersActive();
+    if(!fc.hidden) fc.textContent = shown+' session'+(shown>1?'s':'')+' affichée'+(shown>1?'s':'')+' / '+total;
+    fr.hidden = !filtersActive() && !sortKey;
     document.getElementById('tab-val').textContent = data.pending_total;
     const banner = document.getElementById('dir-banner');
     banner.hidden = role!=='dir' || !data.pending_total;
@@ -201,16 +256,48 @@ import '../styles/calendar.css';
     const bar = document.getElementById('selbar');
     bar.hidden = sel.size === 0;
     if(sel.size){
-      document.getElementById('sel-n').textContent = sel.size+' session'+(sel.size>1?'s':'')+' sélectionnée'+(sel.size>1?'s':'');
+      /* CAL-02 : le filtre est un outil de recherche, pas un geste de désélection — la
+         sélection est CONSERVÉE ; le compteur rend l'invisible visible. */
+      const hidden = [...sel].filter(n=>!visibleNames.has(n)).length;
+      document.getElementById('sel-n').textContent = sel.size+' session'+(sel.size>1?'s':'')+' sélectionnée'+(sel.size>1?'s':'')
+        + (hidden ? ' (dont '+hidden+' hors du filtre)' : '');
       document.getElementById('sel-dup').href = '/calendrier-duplication?s='+[...sel].map(encodeURIComponent).join(',');
     }
     document.querySelectorAll('.sr[data-code]').forEach(r=>r.classList.toggle('is-sel', sel.has(r.dataset.code)));
   }
 
+  function fillProgOptions(){
+    /* CAL-02 : options ALIMENTÉES PAR LES DONNÉES (jamais de liste en dur). */
+    const seen = {};
+    data.groups.forEach(g=>g.sessions.forEach(s=>{
+      if(s.programme_code && !seen[s.programme_code]) seen[s.programme_code] = s.programme_label || s.programme_code;
+    }));
+    const sel2 = document.getElementById('flt-prog');
+    sel2.innerHTML = '<option value="">Tous</option>' + Object.keys(seen).sort()
+      .map(c=>'<option value="'+esc(c)+'">'+esc(seen[c])+'</option>').join('');
+  }
+
   async function load(){
-    try{ const r = await API.calendarList(); data = (r && r.ok!==undefined && r.data!==undefined) ? r.data : r; render(); }
+    try{
+      const r = await API.calendarList(); data = (r && r.ok!==undefined && r.data!==undefined) ? r.data : r;
+      fillProgOptions(); render();
+    }
     catch(e){ document.getElementById('groups').innerHTML = '<div class="em-error-state"><div class="em-empty-title">Calendrier indisponible</div></div>'; }
   }
+
+  /* CAL-02 : tout changement de filtre vide le calque d'accordéon (nouveaux résultats →
+     dépliés) ; openAA (base utilisateur) reste intact et est restitué au reset. */
+  function onFilterChange(){ openFlt = {}; render(); }
+  document.getElementById('flt-q').addEventListener('input', e=>{ flt.q = e.target.value.trim(); onFilterChange(); });
+  document.getElementById('flt-prog').addEventListener('change', e=>{ flt.prog = e.target.value; onFilterChange(); });
+  document.getElementById('flt-state').addEventListener('change', e=>{ flt.state = e.target.value; onFilterChange(); });
+  document.getElementById('flt-reset').addEventListener('click', ()=>{
+    flt = { q: '', prog: '', state: '' }; sortKey = null; sortDir = 1; openFlt = {};
+    document.getElementById('flt-q').value = '';
+    document.getElementById('flt-prog').value = '';
+    document.getElementById('flt-state').value = '';
+    render();
+  });
 
   document.getElementById('vseg').addEventListener('click', e=>{
     const b = e.target.closest('button'); if(!b) return;
@@ -220,8 +307,21 @@ import '../styles/calendar.css';
   });
 
   document.getElementById('groups').addEventListener('click', async e=>{
+    const sb = e.target.closest('[data-sortk]');
+    if(sb){
+      const k = sb.dataset.sortk;
+      if(sortKey !== k){ sortKey = k; sortDir = 1; }
+      else if(sortDir === 1){ sortDir = -1; }
+      else { sortKey = null; sortDir = 1; }   // 3ᵉ clic : retour à l'ordre serveur
+      render(); return;
+    }
     const t = e.target.closest('[data-toggle]');
-    if(t){ openAA[t.dataset.toggle] = openAA[t.dataset.toggle] ? 0 : 1; render(); return; }
+    if(t){
+      const k = t.dataset.toggle;
+      if(filtersActive()) openFlt[k] = K.effectiveOpen(k, true, openAA, openFlt) ? 0 : 1;
+      else openAA[k] = openAA[k] ? 0 : 1;
+      render(); return;
+    }
     const d = e.target.closest('[data-del]');
     if(d){
       UI.emModal({ title:'Supprimer ce brouillon ?', body:'Rien n’est publié : la suppression est le filet en cas d’erreur de duplication.',

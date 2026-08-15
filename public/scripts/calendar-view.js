@@ -36,6 +36,29 @@
     return String(v);
   }
 
+  /* CAL-02 : filtre/recherche CLIENT (22 sessions, tout est déjà servi par calendar_list).
+     norm : insensible casse ET accents (NFD, diacritiques strippés). */
+  function norm(x) {
+    return String(x == null ? '' : x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  }
+  /* Prédicat de filtre — pur : q sur libellé+code, programme exact, état lifecycle exact.
+     Filtrer « Open » INCLUT les échues : la nuance reste un badge, pas un état (FIX-1). */
+  function sessionMatches(s, flt) {
+    if (!flt) return true;
+    if (flt.q && norm(s.label + ' ' + s.session_code).indexOf(norm(flt.q)) === -1) return false;
+    if (flt.prog && s.programme_code !== flt.prog) return false;
+    if (flt.state && s.lifecycle_state !== flt.state) return false;
+    return true;
+  }
+  /* CAL-02 : ouverture EFFECTIVE d'une année d'accordéon. openAA = état UTILISATEUR (base,
+     jamais écrasé par le filtre) ; openFlt = calque TRANSITOIRE pendant un filtre (défaut :
+     ouvert), vidé à chaque changement de filtre et au reset → l'accordéon de base est
+     restitué à l'identique en sortie de filtre. */
+  function effectiveOpen(ay, filtersActive, openAA, openFlt) {
+    if (!filtersActive) return !!openAA[ay];
+    return openFlt[ay] !== undefined ? !!openFlt[ay] : true;
+  }
+
   /* Les trois états du lifecycle (§2). `display_status` du serveur (brouillon/a_venir/echue/
      fermee) est une NUANCE d'affichage : il ne remplace pas le badge d'état. */
   const STATE = {
@@ -109,6 +132,7 @@
     toD: toD, toIso: toIso, fmt: fmt, dow: dow, fmtDow: fmtDow, shift: shift, days: days,
     fmtTime: fmtTime, fmtVal: fmtVal, isEchue: isEchue,
     ruleWord: ruleWord, isDevHost: isDevHost,
+    norm: norm, sessionMatches: sessionMatches, effectiveOpen: effectiveOpen,
     mode: mode, fullName: fullName, pendingOf: pendingOf, stateOf: stateOf, badge: badge, ico: ico
   };
 })();
