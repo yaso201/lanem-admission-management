@@ -7,7 +7,9 @@ import Layout from '../layouts/Layout.astro';
 import '../styles/calendar.css';
 ---
 <Layout title="Calendrier des sessions — emela management" role="resp" page="calendrier" shared={true}>
-<script is:inline src="/scripts/calendar-view.js"></script>
+<!-- CAL-HOTFIX : ?v= casse le cache navigateur (asset public/ non hashé, max-age=43200) —
+     BUMPER LA VERSION DANS LES 4 PAGES CALENDRIER à chaque modification de calendar-view.js -->
+<script is:inline src="/scripts/calendar-view.js?v=4"></script>
 
 <main class="page" id="main-content">
   <div class="page-head">
@@ -282,7 +284,12 @@ import '../styles/calendar.css';
       const r = await API.calendarList(); data = (r && r.ok!==undefined && r.data!==undefined) ? r.data : r;
       fillProgOptions(); render();
     }
-    catch(e){ document.getElementById('groups').innerHTML = '<div class="em-error-state"><div class="em-empty-title">Calendrier indisponible</div></div>'; }
+    catch(e){
+      /* V-LEARN : un catch d'état d'erreur LOGGE TOUJOURS sa cause — un échec muet a coûté
+         un hotfix (skew de cache → TypeError avalé, console vide, aucun indice). */
+      console.error('calendrier : échec de chargement/rendu —', e);
+      document.getElementById('groups').innerHTML = '<div class="em-error-state"><div class="em-empty-title">Calendrier indisponible</div></div>';
+    }
   }
 
   /* CAL-02 : tout changement de filtre vide le calque d'accordéon (nouveaux résultats →

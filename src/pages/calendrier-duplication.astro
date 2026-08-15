@@ -9,7 +9,9 @@ import Layout from '../layouts/Layout.astro';
 import '../styles/calendar.css';
 ---
 <Layout title="Dupliquer et décaler des sessions — emela management" role="resp" page="calendrier" shared={true}>
-<script is:inline src="/scripts/calendar-view.js"></script>
+<!-- CAL-HOTFIX : ?v= casse le cache navigateur (asset public/ non hashé, max-age=43200) —
+     BUMPER LA VERSION DANS LES 4 PAGES CALENDRIER à chaque modification de calendar-view.js -->
+<script is:inline src="/scripts/calendar-view.js?v=4"></script>
 
 <main class="page wrap-narrow" id="main-content" style="max-width:1080px">
   <div class="page-head">
