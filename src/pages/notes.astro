@@ -42,6 +42,16 @@ import Layout from '../layouts/Layout.astro';
 
   <div id="imp-host"></div>
   <div id="roster"></div>
+  <!-- C8 (FIX-3) : historique des modifications — lecture seule, journal serveur (DEC-J) -->
+  <div class="card" id="hist-card" hidden style="margin-top:var(--space-6)">
+    <div class="card-head"><div class="card-title">Historique des modifications</div>
+      <div style="display:flex;gap:var(--space-3);align-items:center">
+        <label class="nt-lbl" for="hist-flt" style="margin:0">Candidat</label>
+        <select class="nt-sel" id="hist-flt" style="width:auto;min-width:200px"><option value="">Tous</option></select>
+        <button type="button" class="em-btn em-btn--ghost em-btn--sm" id="hist-refresh">Actualiser</button>
+      </div></div>
+    <div class="card-body" id="hist-body"></div>
+  </div>
   <div id="nt-errors"></div>
   <div id="save-result"></div>
 
@@ -350,16 +360,102 @@ import Layout from '../layouts/Layout.astro';
     } catch(e){ UI.emToast(e.message, 'error'); }
   }
 
+  /* ── C9 (FIX-3) : ASSISTANT d'import — nos fichiers passent DIRECT ; l'étape de mapping
+     n'apparaît qu'en cas d'écart d'en-têtes, le repli d'encodage seulement si la lecture
+     échoue réellement (caractères �). Le PARSING reste serveur (source unique FIX-0) : le
+     front ne réécrit que la LIGNE D'EN-TÊTE mappée, même séparateur. ── */
+  let IMPFILE = null, IMPENC = 'utf-8';
+  const _normH = h => String(h || '').replace(/^﻿/, '').trim().replace(/^="?|"?$/g, '').toLowerCase();
+  function _targets(){
+    const t = [{ v: '', l: '— ignorer —' }, { v: 'dossier_id', l: 'dossier_id' },
+               { v: 'numero_convocation', l: 'n° de convocation' }, { v: 'nom', l: 'nom' }];
+    SUBJECTS.forEach(s => t.push({ v: s.key, l: s.label }));
+    t.push({ v: 'absent', l: 'absent' });
+    return t;
+  }
+  function _guessTarget(h){
+    const n = _normH(h);
+    const known = { 'dossier_id': 'dossier_id', 'numero_convocation': 'numero_convocation',
+                    'numero': 'numero_convocation', 'nom': 'nom', 'absent': 'absent' };
+    if(known[n]) return known[n];
+    const bySubj = SUBJECTS.find(s => n === s.key || n === s.label.toLowerCase());
+    if(bySubj) return bySubj.key;
+    if(n.includes('dossier')) return 'dossier_id';
+    if(n.includes('convoc') || n.includes('numero') || n.includes('n°')) return 'numero_convocation';
+    if(n.includes('math')) return 'maths';
+    if(n.includes('phys')) return 'physique';
+    if(n.includes('cult')) return 'culture';
+    if(n.includes('abs')) return 'absent';
+    if(n.includes('nom') || n.includes('candidat')) return 'nom';
+    return '';
+  }
+  function _analyze(csv){
+    const first = csv.replace(/^﻿/, '').split(/\r?\n/)[0] || '';
+    const sep = first.split(';').length > first.split(',').length ? ';' : ',';
+    const headers = first.split(sep);
+    const unknown = headers.filter(h => !_guessTarget(h) || (_normH(h) !== _guessTarget(h)
+      && !(SUBJECTS.find(s => s.key === _guessTarget(h) && s.label.toLowerCase() === _normH(h)))
+      && !(_normH(h) === 'numero' && _guessTarget(h) === 'numero_convocation')));
+    return { sep, headers, exact: headers.every(h => {
+      const n = _normH(h);
+      return n === 'dossier_id' || n === 'numero_convocation' || n === 'numero' || n === 'nom'
+        || n === 'absent' || SUBJECTS.some(s => n === s.key || n === s.label.toLowerCase());
+    }) };
+  }
   function onImportFile(e){
-    const f = e.target.files[0]; if(!f) return;
+    IMPFILE = e.target.files[0]; e.target.value = '';
+    if(IMPFILE){ IMPENC = 'utf-8'; readImport(); }
+  }
+  function readImport(){
     const rd = new FileReader();
-    rd.onload = async () => {
-      e.target.value = '';
-      const csv = String(rd.result);
-      try { const prev = await API.notesImportPreview(SESSION, csv); showPreview(csv, prev); }
-      catch(err){ showImportError(err); }
-    };
-    rd.readAsText(f);
+    rd.onload = () => handleCsvText(String(rd.result));
+    rd.readAsText(IMPFILE, IMPENC);
+  }
+  async function handleCsvText(csv){
+    if(IMPENC === 'utf-8' && csv.indexOf('�') !== -1){ renderReadOptions(); return; }
+    const a = _analyze(csv);
+    if(!a.exact){ renderMapping(csv, a); return; }
+    await runPreview(csv);
+  }
+  async function runPreview(csv){
+    try { const prev = await API.notesImportPreview(SESSION, csv); showPreview(csv, prev); }
+    catch(err){ showImportError(err); }
+  }
+  /* Repli ENCODAGE : uniquement quand la lecture UTF-8 produit des � (fichier legacy). */
+  function renderReadOptions(){
+    $('imp-host').innerHTML =
+      '<div class="card" style="margin-bottom:var(--space-5)"><div class="card-head"><div class="card-title">Lecture du fichier</div></div><div class="card-body">' +
+      '<p>Des caractères illisibles (�) : ce fichier n\'est pas en UTF-8. Choisissez son encodage :</p>' +
+      '<div style="display:flex;gap:var(--space-3);align-items:center;margin-top:var(--space-3)">' +
+      '<select class="nt-sel" id="imp-enc" style="width:auto"><option value="windows-1252">Windows-1252 (Excel Windows)</option><option value="macintosh">MacRoman (Excel Mac ancien)</option></select>' +
+      '<button type="button" class="em-btn em-btn--primary em-btn--sm" id="imp-reread">Relire le fichier</button>' +
+      '<button type="button" class="em-btn em-btn--ghost em-btn--sm" id="imp-cancel2">Annuler</button></div></div></div>';
+    $('imp-reread').addEventListener('click', () => { IMPENC = $('imp-enc').value; readImport(); });
+    $('imp-cancel2').addEventListener('click', () => { $('imp-host').innerHTML = ''; });
+  }
+  /* Étape MAPPING : seulement si les en-têtes s'écartent — propositions automatiques. */
+  function renderMapping(csv, a){
+    const opts = _targets();
+    $('imp-host').innerHTML =
+      '<div class="card" style="margin-bottom:var(--space-5)"><div class="card-head"><div class="card-title">Correspondance des colonnes</div></div><div class="card-body">' +
+      '<p>Les en-têtes du fichier ne correspondent pas exactement au gabarit — vérifiez la correspondance proposée :</p>' +
+      '<div style="display:grid;grid-template-columns:auto auto;gap:var(--space-2) var(--space-5);align-items:center;margin:var(--space-4) 0;max-width:560px">' +
+      a.headers.map((h, i) =>
+        '<span style="font-family:var(--font-mono);font-size:var(--text-xs)">' + esc(_normH(h) || '(vide)') + '</span>' +
+        '<select class="nt-sel imp-map" data-i="' + i + '" style="width:auto">' +
+        opts.map(o => '<option value="' + o.v + '"' + (o.v === _guessTarget(h) ? ' selected' : '') + '>' + esc(o.l) + '</option>').join('') +
+        '</select>').join('') +
+      '</div><div style="display:flex;gap:var(--space-3)">' +
+      '<button type="button" class="em-btn em-btn--primary em-btn--sm" id="imp-map-go">Appliquer et prévisualiser</button>' +
+      '<button type="button" class="em-btn em-btn--ghost em-btn--sm" id="imp-map-cancel">Annuler</button></div></div></div>';
+    $('imp-map-go').addEventListener('click', async () => {
+      const chosen = Array.from(document.querySelectorAll('.imp-map')).map(s => s.value);
+      const lines = csv.replace(/^﻿/, '').split(/\r?\n/);
+      /* réécrit UNIQUEMENT l'en-tête (même séparateur) — le corps et le parse restent serveur */
+      lines[0] = a.headers.map((h, i) => chosen[i] || ('ignore_' + i)).join(a.sep);
+      await runPreview(lines.join('\r\n'));
+    });
+    $('imp-map-cancel').addEventListener('click', () => { $('imp-host').innerHTML = ''; });
   }
 
   function showPreview(csv, prev){
@@ -380,12 +476,39 @@ import Layout from '../layouts/Layout.astro';
     $('imp-cancel').addEventListener('click', () => { $('imp-host').innerHTML = ''; });
   }
 
+  /* C8 (FIX-3) : consultation du journal (DEC-J) — lecture par l'API resource générique,
+     DocPerms lecture du doctype (READ_UP) ; aucun endpoint dédié, le doctype EST le contrat. */
+  function champLabel(){
+    const m = { absent: 'Absent', validation: 'Validation' };
+    SUBJECTS.forEach(s => { m[s.key] = s.label; });
+    return m;
+  }
+  async function loadHistorique(){
+    if(!SESSION) return;
+    const flt = { session: SESSION };
+    if($('hist-flt').value) flt.applicant = $('hist-flt').value;
+    try {
+      const rows = await API.resource('Admission Note Change Log',
+        ['applicant', 'applicant_name', 'champ', 'old_value', 'new_value', 'action_type', 'origin', 'author', 'at'],
+        flt, 'at desc');
+      const m = champLabel();
+      const dash = v => (v === '' || v == null) ? '—' : String(v);
+      $('hist-body').innerHTML = (rows && rows.length)
+        ? '<div class="em-table-wrap"><table class="em-table"><thead><tr><th>Quand</th><th>Candidat</th><th>Champ</th><th>Ancienne → nouvelle</th><th>Acte · origine</th><th>Par</th></tr></thead><tbody>' +
+          rows.map(r => '<tr><td>' + esc(String(r.at || '').slice(0, 16)) + '</td><td>' + esc(r.applicant_name || r.applicant) + '</td>' +
+            '<td>' + esc(m[r.champ] || r.champ) + '</td><td>' + esc(dash(r.old_value) + ' → ' + dash(r.new_value)) + '</td>' +
+            '<td>' + esc((r.action_type || '') + ' · ' + (r.origin || '')) + '</td><td>' + esc(r.author || '') + '</td></tr>').join('') +
+          '</tbody></table></div>'
+        : '<p style="color:var(--text-secondary)">Aucune modification enregistrée pour cette session.</p>';
+    } catch(e){ $('hist-body').innerHTML = '<p style="color:var(--text-secondary)">' + esc(e.message) + '</p>'; }
+  }
+
   async function load(session){
     SESSION = session;
     COEF_EDITING = false;
-    ['imp-host', 'save-result', 'roster'].forEach(id => $(id).innerHTML = '');
+    ['imp-host', 'save-result', 'roster', 'hist-body'].forEach(id => $(id).innerHTML = '');
     $('coef-card').hidden = true; $('savebar').hidden = true; $('signal-note').hidden = true;
-    $('btn-export').hidden = true; $('btn-import-l').hidden = true;
+    $('btn-export').hidden = true; $('btn-import-l').hidden = true; $('hist-card').hidden = true;
     if(!session){ $('sub').textContent = 'Choisissez une session à concours.'; return; }
     try {
       DATA = await API.notesRoster(session);
@@ -395,6 +518,10 @@ import Layout from '../layouts/Layout.astro';
       $('btn-import-l').hidden = !coefSet();
       renderCoef();
       renderRoster();
+      $('hist-card').hidden = false;
+      $('hist-flt').innerHTML = '<option value="">Tous</option>' + (DATA.candidats || []).map(c =>
+        '<option value="' + esc(c.dossier_id) + '">' + esc(c.nom) + '</option>').join('');
+      loadHistorique();
     } catch(e){ $('roster').innerHTML = '<div class="card"><div class="card-body">' + esc(e.message) + '</div></div>'; }
   }
 
@@ -422,6 +549,8 @@ import Layout from '../layouts/Layout.astro';
     });
     $('btn-save').addEventListener('click', save);
     $('btn-validate').addEventListener('click', validateSession);
+    $('hist-refresh').addEventListener('click', loadHistorique);
+    $('hist-flt').addEventListener('change', loadHistorique);
     $('sess').addEventListener('change', e => load(e.target.value));
     try {
       const r = await API.notesPrepaSessions();
