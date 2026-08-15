@@ -469,6 +469,8 @@
     },
     notesValiderMassePreview(session) { return staffCall('valider_notes_masse_preview', { params: { session_id: session } }); },
     notesValiderMasse(session) { return staffCall('valider_notes_masse', { method: 'POST', body: { session_id: session } }); },
+    /* NOTES-FIX-2 (DEC-J) : rouvre la saisie de notes VALIDÉES — RESP_EXACT serveur, journalisé */
+    notesInvalider(dossierId) { return staffCall('invalider_notes_concours', { method: 'POST', body: { dossier_id: dossierId } }); },
   };
 
   window.EmelaAPI = API;

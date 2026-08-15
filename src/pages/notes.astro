@@ -165,7 +165,10 @@ import Layout from '../layouts/Layout.astro';
       const v = c.valeurs || {};
       h += '<tr class="nt-row' + (c.absent ? ' is-abs' : '') + '" data-id="' + esc(c.dossier_id) + '" data-nom="' + esc(c.nom) + '">' +
         '<td>' + esc(c.numero_convocation || '—') + '</td>' +
-        '<td>' + esc(c.nom) + (c.validees ? ' <span class="em-badge em-badge--success em-badge--sm">validées</span>' : '') + '</td>' +
+        /* C7 (DEC-J) : sur une ligne VALIDÉE, le seul geste est « Invalider » (Responsable) —
+           l'écran promettait déjà le verrou, le serveur le tient désormais. */
+        '<td>' + esc(c.nom) + (c.validees ? ' <span class="em-badge em-badge--success em-badge--sm">validées</span>' +
+          (CANVALIDATE ? ' <button type="button" class="em-btn em-btn--ghost em-btn--sm" data-inv="' + esc(c.dossier_id) + '" data-nom="' + esc(c.nom) + '">Invalider</button>' : '') : '') + '</td>' +
         /* C2 : type="text" inputmode="decimal" — PAS type="number" : sous Chrome, « 12,5 » y est
            rejeté par le navigateur → value="" → perte SILENCIEUSE (variante du mal NT-01). Le
            clavier numérique mobile est conservé ; la plage reste jugée par noteError (A10).
@@ -402,6 +405,21 @@ import Layout from '../layouts/Layout.astro';
     CANVALIDATE = ['resp', 'sm'].includes(ux);   // Responsable EXACT — Direction exclue (requirement 1)
     $('btn-export').addEventListener('click', doExport);
     $('file-import').addEventListener('change', onImportFile);
+    /* C7 (DEC-J) : invalidation = acte EXPLICITE, confirmation NOMMÉE, journalisé serveur */
+    $('roster').addEventListener('click', e => {
+      const b = e.target.closest('[data-inv]'); if(!b) return;
+      UI.emModal({
+        title: 'Invalider les notes',
+        lead: 'Invalider les notes validées de ' + b.dataset.nom + ' ? La saisie sera rouverte ' +
+              'et l\'acte journalisé (auteur, horodatage).',
+        fields: [], submitLabel: 'Invalider les notes', danger: true,
+        onSubmit: async () => {
+          await API.notesInvalider(b.dataset.inv);
+          UI.emToast('Notes invalidées — saisie rouverte.', 'success');
+          await load(SESSION);
+        }
+      });
+    });
     $('btn-save').addEventListener('click', save);
     $('btn-validate').addEventListener('click', validateSession);
     $('sess').addEventListener('change', e => load(e.target.value));

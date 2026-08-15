@@ -79,7 +79,9 @@ const crumbs = CRUMBS[page] || [];
          AVANT toute IIFE de page (sinon `window.EmelaUI` undefined → crash, back-office inopérant).
          Ordre api→ui→shell préservé ; EMELA_API_BASE reste avant api.js ; shell.js boote en
          DOMContentLoaded (aucun accès DOM au load). -->
-    <script is:inline src="/scripts/api.js"></script>
+    <!-- CAL-13 : ?v= casse le cache navigateur (asset public/ non hashé, max-age=43200) —
+         BUMPER à chaque modification de api.js, dans le même commit -->
+    <script is:inline src="/scripts/api.js?v=2"></script>
     <script is:inline src="/scripts/ui.js"></script>
     <script is:inline src="/scripts/shell.js"></script>
   </head>
