@@ -31,6 +31,11 @@ import '../styles/calendar.css';
         <div class="cd-head"><span class="cd-title">Jour d’épreuve</span></div>
         <div id="flds2"></div>
       </div>
+      <!-- DEC-R : capacité — policy servie (éditable Draft, structure figée dès publication) -->
+      <div class="cd">
+        <div class="cd-head"><span class="cd-title">Capacité</span></div>
+        <div id="flds3"></div>
+      </div>
       <div id="reemit-zone"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-5);margin-top:var(--space-6)">
         <span style="font-size:var(--text-xs);color:var(--text-secondary)" id="dirty"></span>
@@ -164,11 +169,14 @@ import '../styles/calendar.css';
     b.innerHTML = '<span class="d"></span>'+st.label+(ech ? ' — échue' : '');
     document.getElementById('flds').innerHTML = K.DATE_FIELDS.map(f=>fieldHtml(f,'date')).join('');
     document.getElementById('flds2').innerHTML = K.EXAM_FIELDS.map(f=>fieldHtml(f, f.type)).join('');
+    /* DEC-R : même machinerie fieldHtml (policy + why serveur) — vide = illimité */
+    document.getElementById('flds3').innerHTML = fieldHtml({ k: 'capacity', label: 'Places (capacité)' }, 'text');
     document.getElementById('reemit-zone').innerHTML = reemitZone();
     document.getElementById('i-code').textContent = s.session_code;
     document.getElementById('i-prog').textContent = s.programme_label || s.programme_code || '—';
     document.getElementById('i-aa').textContent = s.academic_year || '—';
-    document.getElementById('i-cand').textContent = s.applicant_count;
+    document.getElementById('i-cand').textContent = s.applicant_count
+      + (s.capacity ? ' / ' + s.capacity + ' places' : '');   // DEC-R
     document.getElementById('i-conv').textContent = s.convocation_count;
     document.getElementById('i-pub').innerHTML = st.pub
       ? '<span style="color:var(--success-700)">oui</span>' : '<span style="color:var(--text-tertiary)">non</span>';

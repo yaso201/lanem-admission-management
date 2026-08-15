@@ -153,7 +153,9 @@ import '../styles/calendar.css';
       + '<input type="checkbox" class="chk" data-sel="'+esc(s.name)+'"'+(sel.has(s.name)?' checked':'')+(role==='admin'?' disabled':'')+' aria-label="Sélectionner '+esc(s.session_code)+'" />'
       + '<div><div class="sr-nm">'+esc(K.fullName(s))+'</div><div class="sr-code">'+esc(s.session_code)+'</div></div>'
       + K.DATE_FIELDS.map(f=>'<div>'+cellDate(s,f.k)+'</div>').join('')
-      + '<div class="sr-cand">'+(s.lifecycle_state==='Draft'?'<span class="cap">—</span>':s.applicant_count)+'</div>'
+      /* DEC-R : taux « X / N places » si capacity posée — SANS capacity : affichage inchangé */
+      + '<div class="sr-cand">'+(s.lifecycle_state==='Draft'?'<span class="cap">—</span>':s.applicant_count)
+      + (s.capacity ? '<span class="cap"> / '+s.capacity+'</span>' : '')+'</div>'
       + '<div class="sr-state">'+K.badge(s)+'</div>'
       + '<div class="sr-act">'+actions(s)+'</div></div>';
   }
