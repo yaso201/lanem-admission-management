@@ -25,8 +25,14 @@ import Layout from '../layouts/Layout.astro';
   .dh-sub .code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); background: var(--sand-50); border: 1px solid var(--border-subtle); padding: 2px 7px; border-radius: var(--radius-xs); }
   .dh-status { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-3); }
 
-  /* DOUBLONS-VUE — information staff, jamais une garde du parcours candidat. */
-  .related-banner { display: flex; align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-6); padding: var(--space-5) var(--space-6); background: var(--warning-50); border: 1px solid var(--warning-200); border-radius: var(--radius-lg); }
+  /* Identité + DOUBLONS-VUE — information staff, jamais une garde du parcours candidat. */
+  .identity-zone { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,360px),1fr)); gap: var(--space-6); margin-bottom: var(--space-6); align-items: stretch; }
+  .identity-card { padding: var(--space-5) var(--space-6); background: var(--surface-paper); border: 1px solid var(--border-default); border-radius: var(--radius-lg); }
+  .identity-title { font-size: var(--text-sm); font-weight: 700; color: var(--text-primary); }
+  .identity-facts { display: grid; grid-template-columns: auto minmax(0,1fr); gap: var(--space-3) var(--space-5); margin: var(--space-4) 0 0; font-size: var(--text-sm); }
+  .identity-facts dt { color: var(--text-tertiary); }
+  .identity-facts dd { margin: 0; color: var(--text-primary); font-weight: 600; overflow-wrap: anywhere; }
+  .related-banner { display: flex; align-items: flex-start; gap: var(--space-4); padding: var(--space-5) var(--space-6); background: var(--warning-50); border: 1px solid var(--warning-200); border-radius: var(--radius-lg); }
   .related-banner > svg { flex-shrink: 0; margin-top: 1px; color: var(--warning-700); }
   .related-main { flex: 1; min-width: 0; }
   .related-title { font-size: var(--text-sm); font-weight: 700; color: var(--warning-700); }
@@ -204,14 +210,24 @@ import Layout from '../layouts/Layout.astro';
     <div class="flow" id="flow"></div>
   </section>
 
-  <aside class="related-banner" id="related-banner" hidden aria-live="polite">
-    <svg class="ico-lg" aria-hidden="true"><use href="#i-info"/></svg>
-    <div class="related-main">
-      <div class="related-title" id="related-title"></div>
-      <p class="related-explain">Correspondance fondée sur la même adresse e-mail. Les candidatures multiples sont autorisées ; cette information n’est pas bloquante.</p>
-      <div class="related-list" id="related-list"></div>
-    </div>
-  </aside>
+  <div class="identity-zone">
+    <section class="identity-card" aria-labelledby="identity-title">
+      <div class="identity-title" id="identity-title">Identité et contact</div>
+      <dl class="identity-facts">
+        <dt>Date de naissance</dt><dd id="identity-dob">—</dd>
+        <dt>E-mail</dt><dd id="identity-email">—</dd>
+        <dt>Téléphone</dt><dd id="identity-phone">—</dd>
+      </dl>
+    </section>
+    <aside class="related-banner" id="related-banner" hidden aria-live="polite">
+      <svg class="ico-lg" aria-hidden="true"><use href="#i-info"/></svg>
+      <div class="related-main">
+        <div class="related-title" id="related-title"></div>
+        <p class="related-explain">Correspondance fondée sur la même adresse e-mail. Les candidatures multiples sont autorisées ; cette information n’est pas bloquante.</p>
+        <div class="related-list" id="related-list"></div>
+      </div>
+    </aside>
+  </div>
 
   <div class="grid">
     <div class="col-main">
@@ -345,8 +361,15 @@ import Layout from '../layouts/Layout.astro';
     stEl.innerHTML = '<span class="st-dot"></span>'+esc(st.l)+'<span class="st-code">'+esc(D.statut)+'</span>';
     $('dh-statemeta').textContent = 'Déposé le '+API.fmtDate(D.soumis_le)+(D.person_id?' · person_id '+D.person_id:'');
 
-    renderRelated(); renderFlow(); renderPieces(); renderPay(); renderNotes(); renderBourses(); renderTransfer(); renderTimeline(); renderSummary(); renderActions();
+    renderIdentity(); renderRelated(); renderFlow(); renderPieces(); renderPay(); renderNotes(); renderBourses(); renderTransfer(); renderTimeline(); renderSummary(); renderActions();
     $('aco-banner').hidden = D.statut !== 'ACO';
+  }
+
+  function renderIdentity(){
+    const identity=D.identite||{};
+    $('identity-dob').textContent=identity.date_naissance ? API.fmtDate(identity.date_naissance) : 'Non renseignée (dossier historique)';
+    $('identity-email').textContent=identity.email||'Non renseigné';
+    $('identity-phone').textContent=identity.tel||'Non renseigné';
   }
 
   function renderRelated(){

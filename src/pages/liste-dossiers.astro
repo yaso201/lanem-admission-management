@@ -30,6 +30,7 @@ import Layout from '../layouts/Layout.astro';
   .tb-spacer { flex: 1; }
   .tb-count { font-size: var(--text-sm); color: var(--text-tertiary); white-space: nowrap; }
   .tb-count b { color: var(--text-primary); font-weight: 600; }
+  .tb-reset[hidden] { display: none; }
 
   /* Table */
   .em-table tbody tr { cursor: pointer; }
@@ -76,7 +77,7 @@ import Layout from '../layouts/Layout.astro';
   <div class="toolbar">
     <div class="search">
       <svg><use href="#i-search"/></svg>
-      <input type="search" id="q" placeholder="Rechercher un nom ou un code…" aria-label="Rechercher" />
+      <input type="search" id="q" placeholder="Nom, numéro, e-mail ou téléphone…" aria-label="Rechercher un dossier" />
     </div>
     <select class="tb-select" id="f-prog" aria-label="Programme">
       <option value="">Tous programmes</option>
@@ -84,13 +85,17 @@ import Layout from '../layouts/Layout.astro';
     <select class="tb-select" id="f-sess" aria-label="Session">
       <option value="">Toutes sessions</option>
     </select>
+    <select class="tb-select" id="f-status" aria-label="Statut">
+      <option value="">Tous statuts</option>
+    </select>
     <select class="tb-select" id="f-sort" aria-label="Trier">
       <option value="recent">Plus récents</option>
       <option value="ancien">Plus anciens</option>
       <option value="nom">Nom (A→Z)</option>
     </select>
+    <button type="button" class="em-btn em-btn--ghost em-btn--sm tb-reset" id="f-reset" hidden>Réinitialiser</button>
     <div class="tb-spacer"></div>
-    <div class="tb-count"><b id="count">0</b> dossier(s)</div>
+    <div class="tb-count"><b id="count">0</b> / <span id="total">0</span> dossier(s)</div>
   </div>
 
   <!-- Table -->
@@ -157,22 +162,26 @@ import Layout from '../layouts/Layout.astro';
 
   let role=null, DATA=[], activePreset=null;
   const elPresets=document.getElementById('presets'), elRows=document.getElementById('rows'),
-        elCount=document.getElementById('count'), q=document.getElementById('q'),
+        elCount=document.getElementById('count'), elTotal=document.getElementById('total'), q=document.getElementById('q'),
         fProg=document.getElementById('f-prog'), fSess=document.getElementById('f-sess'),
-        fSort=document.getElementById('f-sort');
+        fStatus=document.getElementById('f-status'), fSort=document.getElementById('f-sort'),
+        fReset=document.getElementById('f-reset');
 
   function fillFilters(){
-    const progs={}, sess={};
+    const progs={}, sess={}, statuses={};
     DATA.forEach(d=>{ if(d.programme.code) progs[d.programme.code]=d.programme.label||d.programme.code; if(d.session) sess[d.session]=d.session; });
+    DATA.forEach(d=>{ if(d.statut) statuses[d.statut]=(STATE[d.statut]||{}).label||d.statut; });
     fProg.innerHTML='<option value="">Tous programmes</option>'+Object.entries(progs).map(([c,l])=>'<option value="'+esc(c)+'">'+esc(l)+'</option>').join('');
     fSess.innerHTML='<option value="">Toutes sessions</option>'+Object.keys(sess).map(s=>'<option value="'+esc(s)+'">'+esc(s)+'</option>').join('');
+    fStatus.innerHTML='<option value="">Tous statuts</option>'+Object.entries(statuses).sort((a,b)=>a[1].localeCompare(b[1],'fr')).map(([c,l])=>'<option value="'+esc(c)+'">'+esc(l)+'</option>').join('');
   }
 
   function renderPresets(){
     const list = PRESETS[role]||PRESETS.admin;
-    if(!list.some(p=>p.key===activePreset)) activePreset=list[0].key;
+    const visible=list.filter(p=>p.key==='all'||DATA.some(p.pred));
+    if(!visible.some(p=>p.key===activePreset)) activePreset=(visible[0]||list.find(p=>p.key==='all')).key;
     elPresets.innerHTML='';
-    list.forEach(p=>{
+    visible.forEach(p=>{
       const n=DATA.filter(p.pred).length;
       const btn=document.createElement('button');
       btn.className='preset'+(p.isKey?' is-key':'')+(p.key===activePreset?' is-active':'');
@@ -180,6 +189,14 @@ import Layout from '../layouts/Layout.astro';
       btn.addEventListener('click',()=>{ activePreset=p.key; page=1; renderPresets(); renderRows(); });
       elPresets.appendChild(btn);
     });
+  }
+
+  function normalized(value){
+    return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('fr');
+  }
+
+  function updateReset(){
+    fReset.hidden=!(q.value.trim()||fProg.value||fSess.value||fStatus.value||fSort.value!=='recent');
   }
 
   const PAGE_SIZE=50; let page=1;
@@ -196,16 +213,20 @@ import Layout from '../layouts/Layout.astro';
   function renderRows(){
     const list=PRESETS[role]||PRESETS.admin;
     const pred=(list.find(x=>x.key===activePreset)||list[0]).pred;
-    const term=q.value.trim().toLowerCase();
-    let rows=DATA.filter(pred).filter(d=>{
+    const term=normalized(q.value).trim();
+    const presetRows=DATA.filter(pred);
+    let rows=presetRows.filter(d=>{
       if(fProg.value && d.programme.code!==fProg.value) return false;
       if(fSess.value && d.session!==fSess.value) return false;
-      if(term && !(d.nom.toLowerCase().includes(term)||d.dossier_id.toLowerCase().includes(term))) return false;
+      if(fStatus.value && d.statut!==fStatus.value) return false;
+      if(term && ![d.nom,d.dossier_id,d.email,d.tel].some(value=>normalized(value).includes(term))) return false;
       return true;
     });
     const sort=fSort.value;
-    rows.sort((a,b)=> sort==='nom'?a.nom.localeCompare(b.nom): sort==='ancien'? a.soumis_le.localeCompare(b.soumis_le): b.modifie_le.localeCompare(a.modifie_le));
+    rows.sort((a,b)=> sort==='nom'?a.nom.localeCompare(b.nom,'fr',{sensitivity:'base'}): sort==='ancien'? a.soumis_le.localeCompare(b.soumis_le): b.modifie_le.localeCompare(a.modifie_le));
     elCount.textContent=rows.length;
+    elTotal.textContent=presetRows.length;
+    updateReset();
     elRows.innerHTML='';
     if(!rows.length){
       elRows.innerHTML='<tr class="empty-row"><td colspan="8"><div class="em-empty"><div class="em-empty-icon"><svg class="ico-lg"><use href="#i-folders"/></svg></div><div class="em-empty-title">Aucun dossier</div><div class="em-empty-desc">Aucun dossier ne correspond à cette file de travail et à ces filtres.</div></div></td></tr>';
@@ -251,7 +272,11 @@ import Layout from '../layouts/Layout.astro';
     if(want && (PRESETS[r]||[]).some(p=>p.key===want)) activePreset=want;
     load().catch(e=>{ if(e.code!=='AUTH') window.EmelaUI.emToast(e.message,'error'); });
   };
-  [q,fProg,fSess,fSort].forEach(el=>el.addEventListener('input',()=>{ page=1; renderRows(); }));
+  [q,fProg,fSess,fStatus,fSort].forEach(el=>el.addEventListener('input',()=>{ page=1; renderRows(); }));
+  fReset.addEventListener('click',()=>{
+    q.value=''; fProg.value=''; fSess.value=''; fStatus.value=''; fSort.value='recent';
+    page=1; renderRows(); q.focus();
+  });
   // U-03 : navigation de pagination
   document.getElementById('pager').addEventListener('click', e=>{
     const b=e.target.closest('[data-pg]'); if(!b || b.disabled) return;
