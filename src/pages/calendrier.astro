@@ -133,7 +133,11 @@ import '../styles/calendar.css';
     let a;
     if(role === 'dir'){
       if(hasPending) a = '<a class="em-btn em-btn--primary em-btn--sm" href="/calendrier-validations">Valider</a>';
-      else if(s.lifecycle_state === 'Draft') a = '<button type="button" class="em-btn em-btn--secondary em-btn--sm" data-open="'+esc(s.name)+'">'+K.ico('i-lockopen')+'Ouvrir</button>';
+      /* CAL-14 : l'action Ouvrir porte `data-open-session` — nommage DISTINCT de `data-open`
+         (état plié/déplié de la <section class="aa"> ci-dessous, piloté par la CSS). NE PAS
+         « harmoniser » vers `data-open` : c'est la collision historique qui faisait résoudre
+         closest('[data-open]') vers la section (« Ouvrir 1 ? » → id = état accordéon). */
+      else if(s.lifecycle_state === 'Draft') a = '<button type="button" class="em-btn em-btn--secondary em-btn--sm" data-open-session="'+esc(s.name)+'">'+K.ico('i-lockopen')+'Ouvrir</button>';
       else a = '<a class="em-btn em-btn--ghost em-btn--sm" href="'+editUrl+'">'+K.ico('i-pencil')+'Modifier</a>';
     } else if(hasPending){
       a = '<span class="em-badge em-badge--warning em-badge--sm">'+K.ico('i-hourglass')+'Proposé, en attente</span>';
@@ -357,17 +361,20 @@ import '../styles/calendar.css';
         submitLabel:'Supprimer', danger:true, onSubmit: async ()=>{ await API.calendarDeleteDraft(d.dataset.del); UI.emToast('Brouillon supprimé.','success'); load(); } });
       return;
     }
-    const o = e.target.closest('[data-open]');
+    /* CAL-14 : `data-open-session` (id de session), JAMAIS `[data-open]` — ce dernier est aussi
+       porté par la <section class="aa" data-open="0|1"> (état accordéon). closest('[data-open]')
+       résolvait un clic hors bouton vers la section → « Ouvrir 1 ? ». Sélecteur d'action distinct. */
+    const o = e.target.closest('[data-open-session]');
     if(o){
       /* DEC-A : modale NOMMÉE — l'objet exact dans le titre, la conséquence que le SERVEUR
          applique dans le corps (publie · structure et ouverture figées · visible candidat),
          le verbe + l'objet sur le bouton. Jamais « OK ». Gating inchangé (dir + Draft + !pending). */
-      const s = findSession(o.dataset.open) || { session_code: o.dataset.open };
+      const s = findSession(o.dataset.openSession) || { session_code: o.dataset.openSession };
       UI.emModal({ title: 'Ouvrir '+s.session_code+' ?',
         body: (s.label ? K.fullName(s)+' — ' : '')
           + 'ouvrir publie la session : la structure et la date d’ouverture sont figées, elle devient visible du catalogue candidat et les dépôts s’ouvrent. Acte de la Direction.',
         submitLabel: 'Ouvrir '+s.session_code,
-        onSubmit: async ()=>{ await API.calendarOpenSession(o.dataset.open); UI.emToast('Session ouverte.','success'); load(); } });
+        onSubmit: async ()=>{ await API.calendarOpenSession(o.dataset.openSession); UI.emToast('Session ouverte.','success'); load(); } });
     }
   });
 
