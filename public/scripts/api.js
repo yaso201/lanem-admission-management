@@ -295,6 +295,36 @@
       });
     },
 
+    /* ---- TRANSFERT-SESSION : décisions Responsable, règles intégralement serveur ---- */
+    transferSession(id, targetSession) {
+      return staffCall('transfer_session', {
+        method: 'POST', body: { dossier_id: id, target_session: targetSession },
+      });
+    },
+    markAbsent(id) {
+      return staffCall('mark_absent', { method: 'POST', body: { dossier_id: id } });
+    },
+    transferJustifiedAbsence(id, targetSession, reasonCode, reasonDetail, justificatif) {
+      return staffCall('transfer_justified_absence', {
+        method: 'POST',
+        body: { dossier_id: id, target_session: targetSession, reason_code: reasonCode,
+                reason_detail: reasonDetail, justificatif: justificatif || null },
+      });
+    },
+    institutionalTransferTargets(sourceSession) {
+      return staffCall('institutional_transfer_targets', { params: { source_session: sourceSession } });
+    },
+    institutionalTransferPreview(sourceSession, targetSession) {
+      return staffCall('institutional_transfer_preview', {
+        params: { source_session: sourceSession, target_session: targetSession },
+      });
+    },
+    institutionalTransfer(sourceSession, targetSession) {
+      return staffCall('institutional_transfer', {
+        method: 'POST', body: { source_session: sourceSession, target_session: targetSession },
+      });
+    },
+
     /* ---- paiement agent (ARGENT — montants serveur, jamais calculés ici) ---- */
     confirmOfflinePayment(id, mode, justificatif, paymentId) {
       return staffCall('confirm_offline_payment', {
@@ -322,6 +352,13 @@
         throw { code: 'UPLOAD_FAILED', message: 'Échec du dépôt du justificatif.', httpStatus: res.status };
       }
       return json.message.file_url;
+    },
+    async viewPrivateFile(fileUrl) {
+      const res = await fetch(BASE + fileUrl, { credentials: 'include' });
+      if (!res.ok) throw { code: 'FILE_UNAVAILABLE', message: 'Justificatif indisponible.', httpStatus: res.status };
+      const url = URL.createObjectURL(await res.blob());
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     },
     async downloadReceipt(paymentId) {
       const res = await request('/api/method/admission.api.staff.download_receipt',

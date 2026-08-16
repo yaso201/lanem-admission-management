@@ -57,6 +57,13 @@ import '../styles/calendar.css';
         <div class="kv"><span class="k">Visible du candidat</span><span class="v" id="i-pub">—</span></div>
         <div class="kv"><span class="k">Session suivante</span><span class="v" id="i-next">—</span></div>
       </div>
+      <div class="side-card" id="transfer-batch" hidden>
+        <div class="side-t">Annulation institutionnelle</div>
+        <p style="font-size:var(--text-xs);color:var(--text-secondary);line-height:var(--leading-relaxed);margin-bottom:var(--space-4)">Transfère en lot les dossiers actifs payés vers une session future du même programme. La capacité avertit mais ne bloque jamais.</p>
+        <label for="transfer-target" style="display:block;font-size:var(--text-xs);font-weight:600;margin-bottom:var(--space-2)">Session cible</label>
+        <select class="em-input" id="transfer-target" style="width:100%;margin-bottom:var(--space-4)"><option value="">— choisir —</option></select>
+        <button type="button" class="em-btn em-btn--secondary em-btn--sm" id="transfer-preview" style="width:100%" disabled>Prévisualiser le transfert</button>
+      </div>
       <!-- CAL-AMEL (DEC-P) : journal de la session — lecture seule (API resource, READ_UP) -->
       <div class="side-card">
         <div class="side-t">Historique de la session</div>
@@ -78,7 +85,7 @@ import '../styles/calendar.css';
   const API = window.EmelaAPI, UI = window.EmelaUI, K = window.EmelaCal, esc = UI.esc;
   const name = new URLSearchParams(location.search).get('s');
   const unwrap = r => (r && r.ok!==undefined && r.data!==undefined) ? r.data : r;
-  let s = null, role = 'resp', draft = {};
+  let s = null, role = 'resp', roleReady = false, draft = {};
 
   function fieldHtml(f, type){
     const pol = (s.policies||{})[f.k] || {};
@@ -309,13 +316,46 @@ import '../styles/calendar.css';
     }
   }
 
+  async function loadTransferTargets(){
+    const card=document.getElementById('transfer-batch'), sel=document.getElementById('transfer-target');
+    card.hidden = !(role === 'resp' && s && s.is_prepa_session);
+    if(card.hidden) return;
+    try{
+      const r=await API.institutionalTransferTargets(name), targets=r.targets||[];
+      sel.innerHTML='<option value="">— choisir —</option>'+targets.map(t=>'<option value="'+esc(t.session_id)+'">'
+        +esc((t.label||t.session_id)+' · '+t.exam_date+' · '+t.applicant_count+(t.capacity!=null?' / '+t.capacity+' places':' dossier(s)')+(t.would_exceed_capacity?' — capacité dépassée':''))+'</option>').join('');
+      document.getElementById('transfer-preview').disabled=!targets.length;
+    }catch(e){
+      card.hidden=true;
+    }
+  }
+
+  document.getElementById('transfer-target').addEventListener('change',e=>{
+    document.getElementById('transfer-preview').disabled=!e.target.value;
+  });
+  document.getElementById('transfer-preview').addEventListener('click',async()=>{
+    const target=document.getElementById('transfer-target').value;
+    if(!target) return;
+    try{
+      const p=await API.institutionalTransferPreview(name,target), cap=p.capacity||{};
+      UI.emModal({ title:'Transfert institutionnel en lot', danger:true,
+        lead:'Vous allez transférer '+p.eligible+' dossier(s) actif(s) payé(s). Chaque dossier conserve son frais et reçoit une nouvelle convocation. '
+          +(cap.warning||('Occupation cible après transfert : '+cap.after+(cap.capacity!=null?' / '+cap.capacity+' places':'.')))
+          +' La session d’origine ne sera pas fermée automatiquement.',
+        fields:[], submitLabel:'Transférer '+p.eligible+' dossier(s)',
+        onSubmit:async()=>{ const r=await API.institutionalTransfer(name,target); UI.emToast(r.transferred+' dossier(s), '+r.convocations_reissued+' convocation(s), '+r.logs+' ligne(s) de journal.','success'); await load(); await loadTransferTargets(); }
+      });
+    }catch(e){ UI.emToast(e.message,'error'); }
+  });
+
   async function load(){
     s = unwrap(await API.calendarSession(name));
     render();
     loadJournal();
+    if(roleReady) loadTransferTargets();
   }
 
-  window.onEmelaRole = function(r){ role = r; draft = {}; if(s) render(); };
+  window.onEmelaRole = function(r){ role = r; roleReady = true; draft = {}; if(s){ render(); loadTransferTargets(); } };
   if(!name){ location.replace('/calendrier'); } else { load(); }
 })();
 </script>

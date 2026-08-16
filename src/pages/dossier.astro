@@ -5,10 +5,10 @@ import Layout from '../layouts/Layout.astro';
 <style is:global>
 
   body { background: var(--surface-canvas); }
-  /* .ico*/[hidden] retirés : déjà fournis par shell.css (importé par Layout) — fin des doublons. */
+  /* Les règles .ico et [hidden] sont déjà fournies par shell.css via Layout. */
 
   /* STAFF-HEADER-NAV : header + breadcrumb désormais partagés (Layout + shell.css). Les
-     anciennes règles globales .top*/.brand/.you/.crumb sont retirées (elles écrasaient le
+     anciennes règles globales .top, .brand, .you et .crumb sont retirées (elles écrasaient le
      header/breadcrumb partagés sur cette page). .wrap = conteneur de contenu conservé. */
   .wrap { max-width: 1280px; margin: 0 auto; padding: var(--space-6) var(--space-9) var(--space-12); }
   @media (max-width: 720px){ .wrap { padding-left: var(--space-5); padding-right: var(--space-5); } }
@@ -103,6 +103,13 @@ import Layout from '../layouts/Layout.astro';
   .note-stat .l { font-size: var(--text-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-tertiary); }
   .note-stat .v { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink-900); line-height: 1; margin-top: var(--space-3); font-variant-numeric: tabular-nums; }
   .note-stat .v small { font-size: var(--text-sm); color: var(--text-tertiary); font-weight: 600; }
+
+  /* TRANSFERT-SESSION — journal de session, visible notamment par la Direction. */
+  .transfer-summary { display:flex; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-5); }
+  .transfer-row { padding:var(--space-4) 0; border-top:1px solid var(--border-subtle); }
+  .transfer-row:first-of-type { border-top:0; padding-top:0; }
+  .transfer-main { font-size:var(--text-sm); font-weight:600; color:var(--text-primary); }
+  .transfer-meta { margin-top:var(--space-2); font-size:var(--text-xs); color:var(--text-secondary); line-height:var(--leading-normal); }
 
   /* Bourse */
   .bourse-card { display: flex; align-items: center; gap: var(--space-5); }
@@ -248,6 +255,14 @@ import Layout from '../layouts/Layout.astro';
         <div class="sec-body" id="bourses-body"></div>
       </section>
 
+      <section class="sec" id="sec-transfer" hidden>
+        <div class="sec-head">
+          <div class="h"><span class="hc"><svg class="ico"><use href="#i-cal"/></svg></span><span class="sec-title">Transferts de session</span></div>
+          <span class="em-badge em-badge--neutral em-badge--sm" id="transfer-badge"></span>
+        </div>
+        <div class="sec-body" id="transfer-body"></div>
+      </section>
+
       <section class="sec">
         <div class="sec-head">
           <div class="h"><span class="hc"><svg class="ico"><use href="#i-clock"/></svg></span><span class="sec-title">Historique du dossier</span></div>
@@ -298,7 +313,7 @@ import Layout from '../layouts/Layout.astro';
     BRO:{l:'Brouillon'}, SOP:{l:'Soumis (prov.)'}, SOU:{l:'Soumis'},
     INC:{l:'Incomplet'}, ETU:{l:'En étude'}, ATT:{l:"Liste d'attente"},
     ADM:{l:'Admis'}, ACO:{l:'Admis sous réserve'}, ACC:{l:'Accepté'},
-    INS:{l:'Inscrit'}, REF:{l:'Refusé'}, REJ:{l:'Rejeté (doc.)'}, DES:{l:'Désisté'}
+    INS:{l:'Inscrit'}, ABS:{l:'Absent'}, REF:{l:'Refusé'}, REJ:{l:'Rejeté (doc.)'}, DES:{l:'Désisté'}
   };
   const PIECE_LABELS = { missing:'Manquante', uploaded:'Déposée', verified:'Vérifiée', rejected:'Rejetée' };
   const REJECT_REASONS = ['Illisible / floue','Mauvaise pièce','Incomplète','Non conforme','Expirée','Autre'];
@@ -330,7 +345,7 @@ import Layout from '../layouts/Layout.astro';
     stEl.innerHTML = '<span class="st-dot"></span>'+esc(st.l)+'<span class="st-code">'+esc(D.statut)+'</span>';
     $('dh-statemeta').textContent = 'Déposé le '+API.fmtDate(D.soumis_le)+(D.person_id?' · person_id '+D.person_id:'');
 
-    renderRelated(); renderFlow(); renderPieces(); renderPay(); renderNotes(); renderBourses(); renderTimeline(); renderSummary(); renderActions();
+    renderRelated(); renderFlow(); renderPieces(); renderPay(); renderNotes(); renderBourses(); renderTransfer(); renderTimeline(); renderSummary(); renderActions();
     $('aco-banner').hidden = D.statut !== 'ACO';
   }
 
@@ -544,6 +559,31 @@ import Layout from '../layouts/Layout.astro';
       '<p class="t-body-sm" style="margin:var(--space-5) 0 var(--space-3);font-weight:600">Validées par la Direction</p>'+list(B.validees,'Validée — transmise à UF à l\'inscription');
   }
 
+  function renderTransfer(){
+    const T = D.transfer || {}, rows = T.history || [];
+    const sec = $('sec-transfer');
+    sec.hidden = !(rows.length || D.statut === 'ABS');
+    if(sec.hidden) return;
+    $('transfer-badge').textContent = rows.length + ' transfert' + (rows.length>1?'s':'');
+    const type = { voluntary:'Anticipé volontaire', justified_absence:'Absence justifiée', institutional:'Annulation LaNEM' };
+    let h = '<div class="transfer-summary">'
+      + '<span class="em-badge em-badge--neutral em-badge--sm">Quota volontaire : '+esc(String(T.voluntary_used||0))+' / 1</span>'
+      + (T.absence_deadline?'<span class="em-badge em-badge--warning em-badge--sm">Transfert justifié jusqu’au '+esc(API.fmtDate(T.absence_deadline))+' inclus</span>':'')
+      + '</div>';
+    if(!rows.length) h += '<p class="t-body-sm t-muted" style="margin:0">Aucun transfert enregistré.</p>';
+    h += rows.map(r=>'<div class="transfer-row"><div class="transfer-main">'+esc(type[r.transfer_type]||r.transfer_type)+' · '+esc(r.from_session)+' → '+esc(r.to_session)+'</div>'
+      + '<div class="transfer-meta">'+esc(API.fmtDate(r.transferred_at))+' · '+esc(r.actor||'')
+      + (r.reason_code?' · '+esc(r.reason_code):'')+(r.reason_detail?' — '+esc(r.reason_detail):'')
+      + (r.capacity_after!=null?' · occupation cible '+esc(String(r.capacity_after)):'')
+      + (r.convocation_reissued?' · convocation réémise':' · réémission en échec')+'</div>'
+      + (r.justificatif?'<button type="button" class="em-btn em-btn--ghost em-btn--sm" data-transfer-file="'+esc(r.justificatif)+'" style="margin-top:var(--space-3)">Voir le justificatif</button>':'')
+      + '</div>').join('');
+    $('transfer-body').innerHTML = h;
+    $('transfer-body').querySelectorAll('[data-transfer-file]').forEach(b=>b.addEventListener('click',()=>{
+      API.viewPrivateFile(b.dataset.transferFile).catch(e=>UI.emToast(e.message,'error'));
+    }));
+  }
+
   function renderTimeline(){
     const t = D.transitions||[];
     $('timeline').innerHTML = t.length ? t.map((x,i)=>
@@ -603,6 +643,42 @@ import Layout from '../layouts/Layout.astro';
     const head = $('act-head');
     head.classList.remove('role-admin','role-resp','role-dir');
     if(ROLE) head.classList.add('role-'+ROLE);
+
+    // ── TRANSFERT-SESSION : décisions Responsable EXACT, disponibilité 100 % serveur ──
+    const targets = ((D.transfer||{}).targets||[]).map(t=>({
+      value:t.session_id,
+      label:(t.label||t.session_id)+' · '+(t.exam_date||'')+' · '+t.applicant_count
+        +(t.capacity!=null?' / '+t.capacity+' places':' dossier(s)')
+        +(t.would_exceed_capacity?' — capacité dépassée':''),
+    }));
+    if(can('transfer_session')) body.appendChild(act('Transférer vers une autre session…','secondary',()=>{
+      UI.emModal({ title:'Transfert anticipé de session',
+        lead:'Un seul transfert volontaire par dossier. Le frais 1 et le paiement existants suivent le dossier ; aucun nouveau frais n’est créé.',
+        fields:[{name:'target',label:'Session cible',type:'select',options:targets,required:true}],
+        submitLabel:'Transférer et réémettre la convocation',
+        onSubmit:async v=>{ const r=await API.transferSession(D.dossier_id,v.target); UI.emToast((r.capacity&&r.capacity.warning)||'Dossier transféré et convocation réémise.','success'); await refresh(); }
+      });
+    },'cal'));
+    if(can('mark_absent')) body.appendChild(act('Décider l’absence (ETU → ABS)…','secondary',()=>{
+      UI.emModal({ title:'Décider l’absence au concours', danger:true,
+        lead:'Décision humaine dossier par dossier. La case « absent » des notes est seulement un signal. Les frais restent acquis ; un transfert justifié restera possible pendant 7 jours.',
+        fields:[], submitLabel:'Marquer absent',
+        onSubmit:async()=>{ await API.markAbsent(D.dossier_id); UI.emToast('Dossier placé en ABS.','success'); await refresh(); }
+      });
+    },'gavel'));
+    if(can('transfer_justified_absence')) body.appendChild(act('Accepter l’absence justifiée et transférer…','primary',()=>{
+      const reasons=((D.transfer||{}).reason_codes||[]).map(x=>({value:x,label:x.charAt(0).toUpperCase()+x.slice(1)}));
+      UI.emModal({ title:'Transfert pour absence justifiée',
+        lead:'Le commentaire est obligatoire. Le justificatif est facultatif. Les notes d’absence sont invalidées et journalisées avant le retour en ETU.',
+        fields:[
+          {name:'target',label:'Session cible',type:'select',options:targets,required:true},
+          {name:'reason',label:'Catégorie du motif',type:'select',options:reasons,required:true},
+          {name:'detail',label:'Commentaire obligatoire',type:'textarea',required:true},
+          {name:'file',label:'Justificatif (facultatif)',type:'file',accept:'.pdf,.png,.jpg,.jpeg'}
+        ], submitLabel:'Accepter et transférer',
+        onSubmit:async v=>{ const url=v.file?await API.uploadJustificatif(v.file):null; const r=await API.transferJustifiedAbsence(D.dossier_id,v.target,v.reason,v.detail,url); UI.emToast((r.capacity&&r.capacity.warning)||'Absence justifiée acceptée, dossier rouvert en ETU.','success'); await refresh(); }
+      });
+    },'checkcircle'));
 
     // ── Instruction / contrôle documentaire ────────────────────────────────
     if(can('start_review')) body.appendChild(act("Mettre en étude (SOU → ETU)",'primary',async()=>{ try{ await API.startReview(D.dossier_id); UI.emToast('Dossier mis en étude.','success'); await refresh(); }catch(e){ UI.emToast(e.message,'error'); } },'checkcircle'));

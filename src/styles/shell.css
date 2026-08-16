@@ -84,6 +84,8 @@
 .st--acc { background: var(--success-100); color: var(--success-700); } .st--acc .st-dot { background: var(--success-500); }
 .st--ins { background: var(--success-500); color: #fff; } .st--ins .st-dot { background: #fff; } .st--ins .st-code { opacity: 0.85; }
 .st--ref { background: var(--error-50); color: var(--error-700); } .st--ref .st-dot { background: var(--error-500); }
+/* ABS — absence au concours décidée manuellement, réversible pendant 7 jours. */
+.st--abs { background: var(--error-50); color: var(--error-700); border: 1px dashed var(--error-500); padding-block: 2px; } .st--abs .st-dot { background: var(--error-500); }
 /* --- États ajoutés (workflow 12 états · DEC-212, D11 v1.2) --- */
 /* SOP — soumission provisoire (paiement espèce/banque à confirmer) : SOU en pointillé */
 .st--sop { background: var(--ink-50); color: var(--ink-700); border: 1px dashed var(--ink-400); padding-block: 2px; } .st--sop .st-dot { background: var(--ink-400); }

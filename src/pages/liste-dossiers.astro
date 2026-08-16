@@ -126,7 +126,8 @@ import Layout from '../layouts/Layout.astro';
     ETU:{cls:'st--etu',label:'En étude'}, ATT:{cls:'st--att',label:"Liste d'attente"},
     ADM:{cls:'st--adm',label:'Admis'}, ACO:{cls:'st--aco',label:'Admis sous réserve'},
     ACC:{cls:'st--acc',label:'Accepté'}, INS:{cls:'st--ins',label:'Inscrit'},
-    REF:{cls:'st--ref',label:'Refusé'}, DES:{cls:'st--des',label:'Désisté'}
+    ABS:{cls:'st--abs',label:'Absent'}, REF:{cls:'st--ref',label:'Refusé'},
+    REJ:{cls:'st--ref',label:'Rejeté (doc.)'}, DES:{cls:'st--des',label:'Désisté'}
   };
 
   // Files de travail par rôle — prédicats sur les INDICATEURS SERVEUR
@@ -140,6 +141,7 @@ import Layout from '../layouts/Layout.astro';
     ],
     resp: [
       {key:'enetude', label:'En étude',             isKey:true,  pred:d=>d.statut==='ETU'},
+      {key:'abs',     label:'Absences à traiter',   isKey:true,  pred:d=>d.statut==='ABS'},
       {key:'attente', label:"Liste d'attente",      isKey:false, pred:d=>d.statut==='ATT'},
       {key:'notesv',  label:'Notes à valider',      isKey:true,  pred:d=>d.notes==='saisies'},
       {key:'bourse',  label:'Bourses à proposer',   isKey:false, pred:d=>d.bourse==='demandee' && (d.statut==='ETU'||d.statut==='ATT')},
