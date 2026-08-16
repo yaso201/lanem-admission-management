@@ -2,6 +2,7 @@
 import '@emela/design-system/index.css';
 import '../styles/shell.css';
 import Icons from '../components/Icons.astro';
+import pkg from '../../package.json';
 
 interface Props {
   title: string;
@@ -11,6 +12,7 @@ interface Props {
   prog?: string;
 }
 const { title, role = 'admin', page = '', shared = false, prog } = Astro.props;
+const appVersion = pkg.version;
 // C4-FRONT : base API configurable au build (recette/prod), défaut = site dev Frappe.
 const apiBase = import.meta.env.PUBLIC_API_BASE || 'http://admission-dev.localhost:8000';
 
@@ -128,5 +130,15 @@ const crumbs = CRUMBS[page] || [];
     )}
 
     <slot />
+    <footer class="version-stamp" aria-label="Version de l’application">Version {appVersion}</footer>
   </body>
 </html>
+
+<style>
+  .version-stamp {
+    padding: var(--space-4) var(--space-9);
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    text-align: center;
+  }
+</style>
