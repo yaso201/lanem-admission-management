@@ -14,6 +14,9 @@
     return n;
   }
 
+  // A11Y-1 (DEC-C) : compteur pour générer des id uniques label↔champ dans emModal (WCAG 1.3.1 / 4.1.2).
+  let _emFieldSeq = 0;
+
   /* ---------- toast ---------- */
   let toastBox;
   function emToast(message, type) {
@@ -54,9 +57,12 @@
 
     (cfg.fields || []).forEach(f => {
       const wrap = el('div', { style: 'margin-bottom:14px' });
+      const fid = 'emf-' + (++_emFieldSeq);      // A11Y-1 DEC-C : id unique par champ
+      let labelEl = null;
       if (f.type !== 'checkbox-list') {
-        wrap.appendChild(el('label', { style: 'display:block;font-size:13px;font-weight:600;margin-bottom:6px' },
-          f.label + (f.required ? ' <span style="color:var(--error-500,#dc2626)">*</span>' : '')));
+        labelEl = el('label', { style: 'display:block;font-size:13px;font-weight:600;margin-bottom:6px' },
+          f.label + (f.required ? ' <span style="color:var(--error-500,#dc2626)">*</span>' : ''));
+        wrap.appendChild(labelEl);
       }
       let input;
       if (f.type === 'textarea') {
@@ -117,6 +123,12 @@
         };
       } else {
         input = el('input', { type: f.type || 'text', class: 'em-input', placeholder: f.placeholder || '', value: f.value ?? '' });
+      }
+      // A11Y-1 (DEC-C) : associer le label au contrôle UNIQUE (texte/textarea/select/file). Les
+      // checkbox-list (fieldset/legend) et rows (contrôles multiples) restent groupés autrement.
+      if (labelEl && (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA' || input.tagName === 'SELECT')) {
+        input.id = fid;
+        labelEl.setAttribute('for', fid);
       }
       inputs[f.name] = { input, field: f };
       wrap.appendChild(input);
