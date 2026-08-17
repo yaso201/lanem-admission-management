@@ -526,7 +526,18 @@ import Layout from '../layouts/Layout.astro';
   }
 
   async function init(){
-    let me; try { me = await API.whoami(); } catch(e){ return; }
+    let me;
+    try { me = await API.whoami(); }
+    catch(e){
+      if(e.code==='AUTH') return;   // non authentifié → redirection gérée par request()
+      // OBS-1 E-07 : ne PAS rester inerte en silence si la détection du rôle échoue. L'écran restait
+      // vide sans explication ; on affiche un message actionnable et on journalise (console.error).
+      console.error('whoami a échoué à l’initialisation de /notes', e);
+      $('roster').innerHTML = '<div class="card"><div class="card-body">' +
+        esc((e.message || 'Impossible de vérifier votre profil.') + ' Rechargez la page ou reconnectez-vous.') +
+        '</div></div>';
+      return;
+    }
     const ux = API.uxRole(me.roles || []);
     CANSETCOEF = ['resp', 'dir', 'sm'].includes(ux);
     CANVALIDATE = ['resp', 'sm'].includes(ux);   // Responsable EXACT — Direction exclue (requirement 1)
