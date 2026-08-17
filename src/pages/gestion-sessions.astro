@@ -160,15 +160,33 @@ import Layout from '../layouts/Layout.astro';
         const btn = e.target.closest('[data-close-session]'); if(!btn) return;
         const id = btn.dataset.closeSession, label = btn.dataset.label;
         try {
-          const prev = (await API.closeSession(id, null, true)).data || {};
+          /* A3-FIX E-02 : request() (api.js) renvoie DÉJÀ message.data — pas de second
+             déballage `.data` (sinon prev/res === {} → aperçu et bilan affichaient zéro
+             pendant une clôture de masse irréversible). */
+          const prev = (await API.closeSession(id, null, true)) || {};
           const lines = Object.entries(prev.bascules||{}).map(([k,v])=>k+' : '+v+' dossier(s)').join('\n') || 'Aucun dossier à basculer.';
+          /* A3-FIX E-03 : le back sert can_execute + blocking_dossiers + blocking_message
+             au dry-run. can_execute faux (Prépa sans notes validées) → afficher les
+             dossiers bloquants NOMMÉS et NE PAS ouvrir la confirmation de clôture. */
+          if (prev.can_execute === false) {
+            const bloq = (prev.blocking_dossiers||[]);
+            window.EmelaUI.emModal({
+              title: 'Clôture impossible — '+label,
+              lead: (prev.blocking_message || (bloq.length+' dossier(s) Prépa sans notes validées : '+bloq.join(', ')))
+                + '\n\nValidez les notes de ces dossiers avant de pouvoir clôturer la session.',
+              submitLabel: 'Fermer',
+              onSubmit: async () => {},   /* info seule : aucune clôture déclenchée */
+            });
+            return;
+          }
           window.EmelaUI.emModal({
             title: 'Clôturer la session — '+label,
-            lead: 'PRÉVISUALISATION ('+(prev.total||0)+' dossier(s)) :\n'+lines+'\n\nIRRÉVERSIBLE : la session ferme, les instruits passent en REF (mail motivé), les non-aboutis en DES (mail neutre).',
+            lead: 'PRÉVISUALISATION ('+(prev.total||0)+' dossier(s)) :\n'+lines+'\n\nAucun dossier bloquant (notes Prépa validées).\n\nIRRÉVERSIBLE : la session ferme, les instruits passent en REF (mail motivé), les non-aboutis en DES (mail neutre).',
             fields: [{name:'motif',label:'Motif notifié (vide = motif générique de clôture)',type:'text'}],
             submitLabel: 'Clôturer définitivement',
+            danger: true,
             onSubmit: async v => {
-              const res = (await API.closeSession(id, v.motif||null, false)).data || {};
+              const res = (await API.closeSession(id, v.motif||null, false)) || {};
               window.EmelaUI.emToast('Session clôturée — '+(res.refuses||0)+' REF, '+(res.desistes||0)+' DES'+(res.echecs?(', '+res.echecs+' échec(s)'):'.'),'success');
               window.onEmelaRole();
             },
