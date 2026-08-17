@@ -147,7 +147,7 @@ import Layout from '../layouts/Layout.astro';
     document.getElementById('k-ins').textContent = n('INS');
     document.getElementById('k-ins-m').textContent = n('ACC')+' acceptés en attente de frais 2';
 
-    const steps = [['SOU','Soumis'],['ETU','En étude'],['ADM','Admis'],['ACC','Accepté'],['INS','Inscrit']];
+    const steps = [['SOU','Soumis'],['ETU','En étude'],['ADM','Admissible'],['ACC','Accepté'],['INS','Inscrit']];
     const max = Math.max(...steps.map(s=>n(s[0])), 1);
     document.getElementById('funnel').innerHTML = steps.map(([c,l],i)=>
       '<div class="fstage s'+(i+1)+'" role="listitem" aria-label="'+esc(l)+' : '+n(c)+' dossier(s)"><div class="fbar-wrap" aria-hidden="true"><div class="fbar" style="height:'+Math.max(Math.round(100*n(c)/max),6)+'%"><span class="fcount">'+n(c)+'</span></div></div>'+

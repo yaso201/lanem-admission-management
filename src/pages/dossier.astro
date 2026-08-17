@@ -162,6 +162,10 @@ import Layout from '../layouts/Layout.astro';
   .act-note svg { color: var(--ink-600); flex-shrink: 0; margin-top: 1px; }
   .act-decide { display: flex; gap: var(--space-3); flex-wrap: wrap; }
   .act-decide .em-btn { flex: 1 1 auto; min-width: 0; }
+  /* NT-UX — action grisée (bloquée par une condition franchissable) + raison + acteur (patron /notes) */
+  .act-blocked { display: flex; flex-direction: column; gap: var(--space-1); }
+  .act-blocked .act-btn { opacity: .5; cursor: not-allowed; }
+  .act-blocked-why { font-size: var(--text-xs); color: var(--text-secondary); line-height: var(--leading-normal); margin: 0; padding-left: var(--space-3); }
   .role-admin .role-dot { background: var(--role-admin); }
   .role-resp  .role-dot { background: var(--accent-500); }
   .role-dir   .role-dot { background: var(--role-direction); }
@@ -328,7 +332,7 @@ import Layout from '../layouts/Layout.astro';
   const STATUS = {
     BRO:{l:'Brouillon'}, SOP:{l:'Soumis (prov.)'}, SOU:{l:'Soumis'},
     INC:{l:'Incomplet'}, ETU:{l:'En étude'}, ATT:{l:"Liste d'attente"},
-    ADM:{l:'Admis'}, ACO:{l:'Admis sous réserve'}, ACC:{l:'Accepté'},
+    ADM:{l:'Admissible'}, ACO:{l:'Admis sous réserve'}, ACC:{l:'Accepté'},
     INS:{l:'Inscrit'}, ABS:{l:'Absent'}, REF:{l:'Refusé'}, REJ:{l:'Rejeté (doc.)'}, DES:{l:'Désisté'}
   };
   const PIECE_LABELS = { missing:'Manquante', uploaded:'Déposée', verified:'Vérifiée', rejected:'Rejetée' };
@@ -427,9 +431,9 @@ import Layout from '../layouts/Layout.astro';
         ? '<div class="doc-meta" style="color:var(--clay-deep)">Refusée : '+esc(p.reject_reason||'')+(p.reject_comment?' — '+esc(p.reject_comment):'')+'</div>' : '';
       let btns = '';
       if(canAct){
-        let v='';  // axe FORME (verdict)
-        if(p.statut==='uploaded'||p.statut==='rejected') v += B(p,'verify','Vérifier','primary');
-        if(p.statut==='uploaded'||p.statut==='verified') v += B(p,'reject','Refuser','secondary');
+        let v='';  // axe FORME (verdict) — DEC-F : « Réviser le verdict » quand un verdict existe déjà
+        if(p.statut==='uploaded'||p.statut==='rejected') v += B(p,'verify', p.statut==='rejected'?'Réviser le verdict':'Vérifier','primary');
+        if(p.statut==='uploaded'||p.statut==='verified') v += B(p,'reject', p.statut==='verified'?'Réviser le verdict':'Refuser','secondary');
         let e='';  // axe EXIGENCE (transitions utiles seulement)
         if(p.staff_requirement!=='required') e += B(p,'require','Exiger','ghost');
         if(p.staff_requirement!=='waived') e += B(p,'waive','Dispenser','ghost');
@@ -449,9 +453,19 @@ import Layout from '../layouts/Layout.astro';
 
   async function pieceAction(act, code){
     if(act==='view'){ API.viewPiece(D.dossier_id, code).catch(e=>UI.emToast(e.message,'error')); return; }
-    if(act==='reject'){ rejectPieceModal(code); return; }
+    if(act==='reject'){ rejectPieceModal(code); return; }   // rejet = déjà une modale (motif) = confirmation
     const fn = { verify:API.verifyPiece, require:API.requirePiece, waive:API.waivePiece, reset:API.resetPieceRequirement }[act];
     if(!fn) return;
+    // DEC-F : « Vérifier » sur une pièce déjà REJETÉE = révision d'un verdict existant → confirmation
+    // explicite (l'agent doit savoir qu'il révise, pas qu'il qualifie pour la première fois).
+    const pc = (D.pieces||[]).find(x=>x.code===code);
+    if(act==='verify' && pc && pc.statut==='rejected'){
+      UI.emModal({ title:'Réviser le verdict', danger:true,
+        lead:'Cette pièce est actuellement REFUSÉE. La marquer Vérifiée remplace le verdict précédent.',
+        fields:[], submitLabel:'Réviser (marquer Vérifiée)',
+        onSubmit: async ()=>{ await fn(D.dossier_id, code); UI.emToast('Verdict révisé — pièce Vérifiée.','success'); await refresh(); } });
+      return;
+    }
     try{ await fn(D.dossier_id, code); UI.emToast('Pièce mise à jour.','success'); await refresh(); }
     catch(e){ UI.emToast(e.message,'error'); }
   }
@@ -643,10 +657,33 @@ import Layout from '../layouts/Layout.astro';
       fields:[{name:'motif',label:'Motif (obligatoire, communiqué au candidat)',type:'textarea',required:true}],
       onSubmit: async v => { await run(v.motif); UI.emToast('Action effectuée.','success'); await refresh(); } });
   }
-  function boursesField(source, label){
+  function boursesField(source, defaultKeys, label){
+    // NT-UX (DEC-D) : on coche la sélection par défaut NON conflictuelle calculée par le serveur
+    // (une seule bourse par groupe d'exclusivité) — jamais deux options exclusives cochées d'office.
+    const dk = new Set(defaultKeys||[]);
     return { name:'bourses', label, type:'checkbox-list',
       options:(source||[]).map(b=>({ value:b.mirror_key, label:(b.nom||b.mirror_key)+(b.taux!=null?' — '+Math.round(b.taux*1000)/10+' %':''),
-        hint:(b.exclusivity_group?'groupe '+b.exclusivity_group+' (exclusif)':'cumulable'), checked:true })) };
+        hint:(b.exclusivity_group?'groupe '+b.exclusivity_group+' (exclusif)':'cumulable'), checked:dk.has(b.mirror_key) })) };
+  }
+
+  // NT-UX — libellés d'action pour le rendu GRISÉ (blocked_actions). Le back sert la clé + la raison ;
+  // le front n'a besoin que du libellé humain du bouton.
+  const ACTION_LABELS = {
+    mark_admissible:'Déclarer admissible', waitlist:"Mettre en liste d'attente",
+    conditional_admission:'Admission conditionnelle', refuse:'Refuser',
+    saisir_note_concours:'Saisir les notes du concours', verify_bac_diploma:'Vérifier le diplôme',
+    start_review:"Mettre à l'étude", enroll:'Inscrire'
+  };
+  function blockedBtn(meta){
+    // Patron /notes répliqué inline : bouton réellement désactivé + raison textuelle + acteur.
+    const wrap = document.createElement('div'); wrap.className = 'act-blocked';
+    const b = document.createElement('button');
+    b.className = 'em-btn em-btn--secondary act-btn'; b.disabled = true;
+    b.textContent = ACTION_LABELS[meta.action] || meta.action;
+    const r = document.createElement('p'); r.className = 'act-blocked-why';
+    r.textContent = (meta.reason || '') + ' — ' + (meta.actor || '');
+    wrap.appendChild(b); wrap.appendChild(r);
+    return wrap;
   }
 
   function renderActions(){
@@ -745,7 +782,7 @@ import Layout from '../layouts/Layout.astro';
     if(can('accept_admission')) body.appendChild(act('Accepter l\'admission (+ bourses)…','primary',()=>{
       // R2 : la validation des bourses est ATOMIQUE avec l'acceptation (un seul geste Direction)
       const source = (B.proposees||[]).length ? B.proposees : B.demandees;
-      const fields = (source||[]).length ? [boursesField(source,'Bourses validées avec l\'acceptation (décochez pour ne pas valider)')] : [];
+      const fields = (source||[]).length ? [boursesField(source, B.default_validees, 'Bourses validées avec l\'acceptation (une par groupe d\'exclusivité pré-cochée ; ajustez librement)')] : [];
       UI.emModal({ title:'Accepter l\'admission (ADM → ACC)',
         lead:(source||[]).length?'Les bourses cochées sont validées DANS LE MÊME geste (D11 §6.3) et notifiées au candidat avec la décision. Taux indicatifs — le montant final est calculé à l\'inscription.':'Aucune bourse demandée — acceptation simple.',
         fields, submitLabel:'Accepter',
@@ -758,7 +795,7 @@ import Layout from '../layouts/Layout.astro';
       const row = document.createElement('div'); row.className='act-decide';
       if(can('lift_condition')) row.appendChild(act('Lever la condition…','primary',()=>{
         const source = (B.proposees||[]).length ? B.proposees : B.demandees;
-        const fields = (source||[]).length ? [boursesField(source,'Bourses validées avec la levée')] : [];
+        const fields = (source||[]).length ? [boursesField(source, B.default_validees, 'Bourses validées avec la levée (une par groupe d\'exclusivité pré-cochée ; ajustez librement)')] : [];
         UI.emModal({ title:'Lever la condition (ACO → ACC)',
           lead: D.bac_verified ? 'Le diplôme est vérifié — la levée rend l\'admission définitive.' : 'Le diplôme n\'est PAS encore vérifié : le serveur refusera (BAC_NOT_VERIFIED).',
           fields, submitLabel:'Lever la condition',
@@ -779,12 +816,19 @@ import Layout from '../layouts/Layout.astro';
       'Clôture le dossier (DES) — geste sur demande du candidat. Le motif est obligatoire et le candidat est notifié (ton neutre, pas un refus).',
       'Désister', m=>API.withdraw(D.dossier_id,m)),'x'));
 
+    // NT-UX (DEC-B) — APRÈS les actions disponibles : les jalons pertinents à l'état mais BLOQUÉS
+    // par une condition franchissable, rendus grisés + raison + acteur (calcul serveur blocked_actions).
+    (D.blocked_actions || []).forEach(bk => body.appendChild(blockedBtn(bk)));
+
     if(!body.children.length){
-      // GP5 — message CLAIR (jamais « undefined ») : aucun bouton fabriqué. Cas SM (support only,
-      // hors hiérarchie workflow) ou état sans action pour le profil courant.
+      // NT-UX (DEC-C) — aucun geste staff ne fait avancer le dossier : nommer la condition manquante
+      // et l'acteur attendu (awaiting, calculé serveur) plutôt que le générique. Sinon SM / terminal.
       const p = document.createElement('p');
       p.className = 'act-lead'; p.style.margin = '0';
-      p.textContent = 'Aucune action disponible pour votre profil sur ce dossier (état : ' + S + ').';
+      const aw = D.awaiting;
+      p.textContent = (aw && aw.reason)
+        ? (aw.reason + ' — ' + aw.actor)
+        : ('Aucune action disponible pour votre profil sur ce dossier (état : ' + S + ').');
       body.appendChild(p);
     }
   }
