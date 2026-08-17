@@ -64,7 +64,7 @@ import Layout from '../layouts/Layout.astro';
       const rows = [
         ['Campus (catalogue/pont)', h.campus.present],
         ['UF (frais/bourses)', h.uf.present],
-        ['KkiaPay ('+esc(h.kkiapay.mode)+')', h.kkiapay.present],
+        ['FedaPay ('+esc(h.fedapay.mode)+')', h.fedapay.present],
         ['Secret HMAC', h.hmac_secret.present],
         ['Secret webhook', h.webhook_secret.present],
         ['SMTP (e-mails sortants)', h.smtp.present],
@@ -74,7 +74,7 @@ import Layout from '../layouts/Layout.astro';
       const warn = [];
       if(f.developer_mode) warn.push('developer_mode');
       if(f.expose_dev_otp) warn.push('expose_dev_otp');
-      if(f.kkiapay_mock) warn.push('kkiapay_mock');
+      if(f.fedapay_mock) warn.push('fedapay_mock');
       if(warn.length) html += '<div class="diag-row" style="grid-column:1/-1;border-color:var(--accent-200)"><span class="diag-lbl">Drapeaux DEV actifs</span><span class="em-badge em-badge--warning em-badge--sm">'+esc(warn.join(', '))+'</span></div>';
       $('diag').innerHTML = html;
     } catch(e){ if(e.code!=='AUTH') UI.emToast(e.message,'error'); }
