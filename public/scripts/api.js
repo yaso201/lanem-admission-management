@@ -39,7 +39,32 @@
       throw { code: 'NETWORK', message: 'Serveur injoignable. Vérifiez votre connexion.', httpStatus: 0 };
     }
     if (raw) {
-      if (!res.ok) throw { code: 'HTTP_' + res.status, message: 'Téléchargement impossible.', httpStatus: res.status };
+      if (!res.ok) {
+        /* OBS-1 E-05 : en mode raw, PARSER l'enveloppe métier {ok,error} AVANT l'erreur
+           générique — sinon les refus métier (NOT_CONFIRMED, NO_CONVOCATION, SESSION_CLOSED…)
+           des 5 téléchargements (reçu, convocation, émargement, état concours, pièce) sont
+           perdus derrière « Téléchargement impossible ». Le succès (blob) reste inchangé. */
+        const ct = res.headers.get('content-type') || '';
+        if (ct.indexOf('application/json') > -1) {
+          let j = null;
+          try { j = await res.json(); } catch (e) { /* corps non-JSON */ }
+          const m = j && (j.message !== undefined ? j.message : j);
+          if (m && typeof m === 'object' && 'ok' in m && !m.ok) {
+            const err = m.error || {};
+            throw { code: err.code || 'ERROR', message: err.message || 'Action refusée.', httpStatus: res.status };
+          }
+          if (j && j._server_messages) {
+            let sm = '';
+            try {
+              sm = JSON.parse(j._server_messages)
+                .map(x => { try { return JSON.parse(x).message; } catch (e) { return String(x); } })
+                .join(' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            } catch (e) { /* garde le fallback */ }
+            if (sm) throw { code: 'HTTP_' + res.status, message: sm.slice(0, 300), httpStatus: res.status };
+          }
+        }
+        throw { code: 'HTTP_' + res.status, message: 'Téléchargement impossible.', httpStatus: res.status };
+      }
       return res;
     }
     let json = null;

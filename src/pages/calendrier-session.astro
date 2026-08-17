@@ -326,7 +326,14 @@ import '../styles/calendar.css';
         +esc((t.label||t.session_id)+' · '+t.exam_date+' · '+t.applicant_count+(t.capacity!=null?' / '+t.capacity+' places':' dossier(s)')+(t.would_exceed_capacity?' — capacité dépassée':''))+'</option>').join('');
       document.getElementById('transfer-preview').disabled=!targets.length;
     }catch(e){
-      card.hidden=true;
+      if(e.code==='AUTH') return;   // non authentifié → redirection gérée par request()
+      // OBS-1 E-06 : ne PAS masquer la carte en silence. La fonction de transfert reste VISIBLE,
+      // l'échec est signalé (toast) et journalisé (console.error), et l'aperçu est désactivé faute
+      // de cibles chargées — l'exploitant sait pourquoi le lot est indisponible et peut réessayer.
+      console.error('institutionalTransferTargets a échoué', e);
+      sel.innerHTML='<option value="">— sessions cibles indisponibles —</option>';
+      document.getElementById('transfer-preview').disabled=true;
+      UI.emToast(e.message || 'Impossible de charger les sessions cibles.','error');
     }
   }
 
