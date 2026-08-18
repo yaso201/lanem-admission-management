@@ -345,10 +345,16 @@ import '../styles/calendar.css';
     if(!target) return;
     try{
       const p=await API.institutionalTransferPreview(name,target), cap=p.capacity||{};
+      // CONTRAT-2 B2 (faille 19) : l'aperçu SERVAIT déjà la liste nominative `dossiers[]` sans l'afficher
+      // (sur-réponse). On la CONSOMME — patron close_session (A3-FIX) : nommer ce qui va basculer AVANT
+      // l'acte de masse. Aperçu = affichage seul (aucun déclencheur) ; la modale défile (max-height:90vh,
+      // overflow:auto) donc une liste longue (40 dossiers) ne casse pas l'écran.
+      const dossiers=Array.isArray(p.dossiers)?p.dossiers:[];
       UI.emModal({ title:'Transfert institutionnel en lot', danger:true,
         lead:'Vous allez transférer '+p.eligible+' dossier(s) actif(s) payé(s). Chaque dossier conserve son frais et reçoit une nouvelle convocation. '
           +(cap.warning||('Occupation cible après transfert : '+cap.after+(cap.capacity!=null?' / '+cap.capacity+' places':'.')))
-          +' La session d’origine ne sera pas fermée automatiquement.',
+          +' La session d’origine ne sera pas fermée automatiquement.'
+          +(dossiers.length?'\n\nDossiers concernés ('+dossiers.length+') : '+dossiers.join(', '):''),
         fields:[], submitLabel:'Transférer '+p.eligible+' dossier(s)',
         onSubmit:async()=>{ const r=await API.institutionalTransfer(name,target); UI.emToast(r.transferred+' dossier(s), '+r.convocations_reissued+' convocation(s), '+r.logs+' ligne(s) de journal.','success'); await load(); await loadTransferTargets(); }
       });
