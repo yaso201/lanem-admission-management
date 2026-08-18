@@ -135,73 +135,75 @@ import Layout from '../layouts/Layout.astro';
     REJ:{cls:'st--ref',label:'Rejeté (doc.)'}, DES:{cls:'st--des',label:'Désisté'}
   };
 
-  // Files de travail par rôle — prédicats sur les INDICATEURS SERVEUR
+  // PERF-1 — Files de travail : mappées vers des PARAMÈTRES serveur (statuts / queue) et vers les
+  // COMPTEURS serveur (badges). Plus de prédicat client : le back filtre, compte, pagine, trie.
+  const sumStatus = c => Object.values(c.by_status||{}).reduce((a,b)=>a+(b||0),0);
   const PRESETS = {
     admin: [
-      {key:'sop',    label:'Paiements à confirmer', isKey:true,  pred:d=>d.paiement_a_confirmer},
-      {key:'sou',    label:'À mettre en étude',     isKey:true,  pred:d=>d.statut==='SOU'},
-      {key:'inc',    label:'Incomplets',            isKey:false, pred:d=>d.statut==='INC'},
-      {key:'notes',  label:'Notes à saisir',        isKey:false, pred:d=>d.is_prepa && d.statut==='ETU' && d.notes==='absentes'},
-      {key:'all',    label:'Tous les dossiers',     isKey:false, pred:()=>true}
+      {key:'sop',    label:'Paiements à confirmer', isKey:true,  server:{queue:'paiement_a_confirmer'},           count:c=>c.queues.paiement_a_confirmer},
+      {key:'sou',    label:'À mettre en étude',     isKey:true,  server:{statuts:['SOU']},                         count:c=>c.by_status.SOU||0},
+      {key:'inc',    label:'Incomplets',            isKey:false, server:{statuts:['INC']},                         count:c=>c.by_status.INC||0},
+      {key:'notes',  label:'Notes à saisir',        isKey:false, server:{queue:'notes_absentes', statuts:['ETU']}, count:c=>c.queues.notes_absentes},
+      {key:'all',    label:'Tous les dossiers',     isKey:false, server:{},                                        count:sumStatus}
     ],
     resp: [
-      {key:'enetude', label:'En étude',             isKey:true,  pred:d=>d.statut==='ETU'},
-      {key:'abs',     label:'Absences à traiter',   isKey:true,  pred:d=>d.statut==='ABS'},
-      {key:'attente', label:"Liste d'attente",      isKey:false, pred:d=>d.statut==='ATT'},
-      {key:'notesv',  label:'Notes à valider',      isKey:true,  pred:d=>d.notes==='saisies'},
-      {key:'bourse',  label:'Bourses à proposer',   isKey:false, pred:d=>d.bourse==='demandee' && (d.statut==='ETU'||d.statut==='ATT')},
-      {key:'all',     label:'Tous les dossiers',    isKey:false, pred:()=>true}
+      {key:'enetude', label:'En étude',             isKey:true,  server:{statuts:['ETU']},                         count:c=>c.by_status.ETU||0},
+      {key:'abs',     label:'Absences à traiter',   isKey:true,  server:{statuts:['ABS']},                         count:c=>c.by_status.ABS||0},
+      {key:'attente', label:"Liste d'attente",      isKey:false, server:{statuts:['ATT']},                         count:c=>c.by_status.ATT||0},
+      {key:'notesv',  label:'Notes à valider',      isKey:true,  server:{queue:'notes_saisies'},                   count:c=>c.queues.notes_saisies},
+      {key:'bourse',  label:'Bourses à proposer',   isKey:false, server:{queue:'bourse_demandee', statuts:['ETU','ATT']}, count:c=>c.queues.bourse_demandee},
+      {key:'all',     label:'Tous les dossiers',    isKey:false, server:{},                                        count:sumStatus}
     ],
     dir: [
-      {key:'valider',    label:'À valider (ADM→ACC)', isKey:true, pred:d=>d.statut==='ADM'},
-      {key:'conditions', label:'Conditions (ACO)',     isKey:true, pred:d=>d.statut==='ACO'},
-      {key:'inscrire',   label:'À inscrire (ACC→INS)', isKey:true, pred:d=>d.statut==='ACC'},
-      {key:'all',        label:'Tous les dossiers',    isKey:false, pred:()=>true}
+      {key:'valider',    label:'À valider (ADM→ACC)', isKey:true, server:{statuts:['ADM']},                        count:c=>c.by_status.ADM||0},
+      {key:'conditions', label:'Conditions (ACO)',     isKey:true, server:{statuts:['ACO']},                       count:c=>c.by_status.ACO||0},
+      {key:'inscrire',   label:'À inscrire (ACC→INS)', isKey:true, server:{statuts:['ACC']},                       count:c=>c.by_status.ACC||0},
+      {key:'all',        label:'Tous les dossiers',    isKey:false, server:{},                                     count:sumStatus}
     ]
   };
 
-  let role=null, DATA=[], activePreset=null;
+  let role=null, activePreset=null;
+  const PAGE_SIZE=50; let page=1;
+  function presetList(){ return PRESETS[role]||PRESETS.admin; }
+  function currentPreset(){ return presetList().find(p=>p.key===activePreset)||presetList()[0]; }
   const elPresets=document.getElementById('presets'), elRows=document.getElementById('rows'),
         elCount=document.getElementById('count'), elTotal=document.getElementById('total'), q=document.getElementById('q'),
         fProg=document.getElementById('f-prog'), fSess=document.getElementById('f-sess'),
         fStatus=document.getElementById('f-status'), fSort=document.getElementById('f-sort'),
         fReset=document.getElementById('f-reset');
 
-  function fillFilters(){
-    const progs={}, sess={}, statuses={};
-    DATA.forEach(d=>{ if(d.programme.code) progs[d.programme.code]=d.programme.label||d.programme.code; if(d.session) sess[d.session]=d.session; });
-    DATA.forEach(d=>{ if(d.statut) statuses[d.statut]=(STATE[d.statut]||{}).label||d.statut; });
-    fProg.innerHTML='<option value="">Tous programmes</option>'+Object.entries(progs).map(([c,l])=>'<option value="'+esc(c)+'">'+esc(l)+'</option>').join('');
-    fSess.innerHTML='<option value="">Toutes sessions</option>'+Object.keys(sess).map(s=>'<option value="'+esc(s)+'">'+esc(s)+'</option>').join('');
-    fStatus.innerHTML='<option value="">Tous statuts</option>'+Object.entries(statuses).sort((a,b)=>a[1].localeCompare(b[1],'fr')).map(([c,l])=>'<option value="'+esc(c)+'">'+esc(l)+'</option>').join('');
+  function fillFilters(facets){
+    const keepP=fProg.value, keepS=fSess.value, keepSt=fStatus.value;   // PERF-1 : préserver la sélection
+    fProg.innerHTML='<option value="">Tous programmes</option>'+(facets.programmes||[]).map(p=>'<option value="'+esc(p.code)+'">'+esc(p.label||p.code)+'</option>').join('');
+    fSess.innerHTML='<option value="">Toutes sessions</option>'+(facets.sessions||[]).map(s=>'<option value="'+esc(s)+'">'+esc(s)+'</option>').join('');
+    fStatus.innerHTML='<option value="">Tous statuts</option>'+(facets.statuts||[]).slice()
+      .sort((a,b)=>String((STATE[a]||{}).label||a).localeCompare(String((STATE[b]||{}).label||b),'fr'))
+      .map(s=>'<option value="'+esc(s)+'">'+esc((STATE[s]||{}).label||s)+'</option>').join('');
+    fProg.value=keepP; fSess.value=keepS; fStatus.value=keepSt;
   }
 
-  function renderPresets(){
-    const list = PRESETS[role]||PRESETS.admin;
-    const visible=list.filter(p=>p.key==='all'||DATA.some(p.pred));
-    if(!visible.some(p=>p.key===activePreset)) activePreset=(visible[0]||list.find(p=>p.key==='all')).key;
+  function renderPresets(counts){
+    const list=presetList();
+    // PERF-1 : badge = COMPTEUR SERVEUR ; montrer les files non vides + « Tous » + la file active.
+    const visible=list.filter(p=>p.key==='all'||p.key===activePreset||(p.count(counts)||0)>0);
     elPresets.innerHTML='';
     visible.forEach(p=>{
-      const n=DATA.filter(p.pred).length;
       const btn=document.createElement('button');
       btn.className='preset'+(p.isKey?' is-key':'')+(p.key===activePreset?' is-active':'');
-      btn.innerHTML=esc(p.label)+' <span class="cnt">'+n+'</span>';
-      btn.addEventListener('click',()=>{ activePreset=p.key; page=1; renderPresets(); renderRows(); });
+      btn.innerHTML=esc(p.label)+' <span class="cnt">'+(p.count(counts)||0)+'</span>';
+      btn.addEventListener('click',()=>{ activePreset=p.key; page=1; fetchPage(); });
       elPresets.appendChild(btn);
     });
-  }
-
-  function normalized(value){
-    return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('fr');
   }
 
   function updateReset(){
     fReset.hidden=!(q.value.trim()||fProg.value||fSess.value||fStatus.value||fSort.value!=='recent');
   }
 
-  const PAGE_SIZE=50; let page=1;
-  function renderPager(pages){
+  function renderPager(total){
     const pager=document.getElementById('pager');
+    const pages=Math.max(1, Math.ceil(total/PAGE_SIZE));
+    if(page>pages) page=pages;
     if(pages<=1){ pager.innerHTML=''; pager.hidden=true; return; }
     pager.hidden=false;
     let h='<button type="button" class="em-pagination-btn" data-pg="'+(page-1)+'"'+(page<=1?' disabled':'')+' aria-label="Page précédente">‹</button>';
@@ -210,32 +212,13 @@ import Layout from '../layouts/Layout.astro';
     pager.innerHTML=h;
   }
 
-  function renderRows(){
-    const list=PRESETS[role]||PRESETS.admin;
-    const pred=(list.find(x=>x.key===activePreset)||list[0]).pred;
-    const term=normalized(q.value).trim();
-    const presetRows=DATA.filter(pred);
-    let rows=presetRows.filter(d=>{
-      if(fProg.value && d.programme.code!==fProg.value) return false;
-      if(fSess.value && d.session!==fSess.value) return false;
-      if(fStatus.value && d.statut!==fStatus.value) return false;
-      if(term && ![d.nom,d.dossier_id,d.email,d.tel].some(value=>normalized(value).includes(term))) return false;
-      return true;
-    });
-    const sort=fSort.value;
-    rows.sort((a,b)=> sort==='nom'?a.nom.localeCompare(b.nom,'fr',{sensitivity:'base'}): sort==='ancien'? a.soumis_le.localeCompare(b.soumis_le): b.modifie_le.localeCompare(a.modifie_le));
-    elCount.textContent=rows.length;
-    elTotal.textContent=presetRows.length;
-    updateReset();
+  function renderRows(dossiers){
     elRows.innerHTML='';
-    if(!rows.length){
+    if(!dossiers.length){
       elRows.innerHTML='<tr class="empty-row"><td colspan="8"><div class="em-empty"><div class="em-empty-icon"><svg class="ico-lg"><use href="#i-folders"/></svg></div><div class="em-empty-title">Aucun dossier</div><div class="em-empty-desc">Aucun dossier ne correspond à cette file de travail et à ces filtres.</div></div></td></tr>';
-      renderPager(0); return;
+      return;
     }
-    const pages=Math.max(1, Math.ceil(rows.length/PAGE_SIZE));
-    if(page>pages) page=pages;
-    const start=(page-1)*PAGE_SIZE;
-    rows.slice(start, start+PAGE_SIZE).forEach(d=>{
+    dossiers.forEach(d=>{
       const s=STATE[d.statut]||{cls:'',label:d.statut};
       const init=(d.nom||'?').split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
       const fr1=d.frais.application||d.frais.competition;
@@ -258,29 +241,53 @@ import Layout from '../layouts/Layout.astro';
       tr.addEventListener('click',()=>{ window.location.href='/dossier?c='+encodeURIComponent(d.dossier_id); });
       elRows.appendChild(tr);
     });
-    renderPager(pages);
   }
 
-  async function load(){
-    DATA=(await API.listDossiers()).dossiers;
-    fillFilters(); renderPresets(); renderRows();
+  function buildParams(){
+    // PERF-1 : file active + dropdowns + recherche + tri + page → paramètres SERVEUR.
+    const p=currentPreset();
+    const params={ order: fSort.value||'recent', limit: PAGE_SIZE, offset: (page-1)*PAGE_SIZE };
+    if(p.server.queue) params.queue=p.server.queue;
+    let statuts = p.server.statuts ? p.server.statuts.slice() : null;   // intersection preset ∩ dropdown statut
+    if(fStatus.value){ statuts = statuts ? statuts.filter(s=>s===fStatus.value) : [fStatus.value]; }
+    if(statuts) params.statuts=JSON.stringify(statuts);
+    if(fProg.value) params.programme=fProg.value;
+    if(fSess.value) params.session=fSess.value;
+    if(q.value.trim()) params.q=q.value.trim();
+    return params;
+  }
+
+  async function fetchPage(){
+    let res;
+    try{ res=await API.listDossiers(buildParams()); }
+    catch(e){ if(e.code!=='AUTH') window.EmelaUI.emToast(e.message,'error'); return; }
+    LAST=res;
+    renderPresets(res.counts||LAST.counts);
+    fillFilters(res.facets||{programmes:[],sessions:[],statuts:[]});
+    renderRows(res.dossiers||[]);
+    elCount.textContent=(res.dossiers||[]).length;    // DEC-B : affichés (page)
+    elTotal.textContent=res.total||0;                 // DEC-B : total serveur
+    renderPager(res.total||0);
+    updateReset();
   }
 
   window.onEmelaRole=function(r){
     role=r;
     const want=new URLSearchParams(location.search).get('preset');
-    if(want && (PRESETS[r]||[]).some(p=>p.key===want)) activePreset=want;
-    load().catch(e=>{ if(e.code!=='AUTH') window.EmelaUI.emToast(e.message,'error'); });
+    activePreset = (want && (PRESETS[r]||[]).some(p=>p.key===want)) ? want : presetList()[0].key;
+    fetchPage();
   };
-  [q,fProg,fSess,fStatus,fSort].forEach(el=>el.addEventListener('input',()=>{ page=1; renderRows(); }));
+  let _deb;
+  q.addEventListener('input',()=>{ clearTimeout(_deb); _deb=setTimeout(()=>{ page=1; fetchPage(); },250); });   // recherche débounce → serveur
+  [fProg,fSess,fStatus,fSort].forEach(el=>el.addEventListener('change',()=>{ page=1; fetchPage(); }));
   fReset.addEventListener('click',()=>{
     q.value=''; fProg.value=''; fSess.value=''; fStatus.value=''; fSort.value='recent';
-    page=1; renderRows(); q.focus();
+    page=1; fetchPage(); q.focus();
   });
-  // U-03 : navigation de pagination
+  // U-03 : navigation de pagination (offset serveur)
   document.getElementById('pager').addEventListener('click', e=>{
     const b=e.target.closest('[data-pg]'); if(!b || b.disabled) return;
-    page=parseInt(b.dataset.pg,10); renderRows(); window.scrollTo({top:0,behavior:'smooth'});
+    page=parseInt(b.dataset.pg,10); fetchPage(); window.scrollTo({top:0,behavior:'smooth'});
   });
 })();
 </script>
