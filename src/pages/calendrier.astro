@@ -138,7 +138,11 @@ import '../styles/calendar.css';
          « harmoniser » vers `data-open` : c'est la collision historique qui faisait résoudre
          closest('[data-open]') vers la section (« Ouvrir 1 ? » → id = état accordéon). */
       else if(s.lifecycle_state === 'Draft') a = '<button type="button" class="em-btn em-btn--secondary em-btn--sm" data-open-session="'+esc(s.name)+'">'+K.ico('i-lockopen')+'Ouvrir</button>';
-      else a = '<a class="em-btn em-btn--ghost em-btn--sm" href="'+editUrl+'">'+K.ico('i-pencil')+'Modifier</a>';
+      /* CAL-DEL : la Direction peut supprimer une session PUBLIÉE sans engagement (can_delete =
+         verdict serveur : état + 0 dossier/frais/transfert/proposition). Bouton dans la SEULE branche
+         dir (DEC-A : Open → Direction) ; jamais servi au Responsable. Closed → can_delete faux. */
+      else a = '<a class="em-btn em-btn--ghost em-btn--sm" href="'+editUrl+'">'+K.ico('i-pencil')+'Modifier</a>'
+        + (s.can_delete ? '<button type="button" class="em-btn em-btn--ghost em-btn--sm" data-del="'+esc(s.name)+'" title="Supprimer cette session">'+K.ico('i-trash')+'</button>' : '');
     } else if(hasPending){
       a = '<span class="em-badge em-badge--warning em-badge--sm">'+K.ico('i-hourglass')+'Proposé, en attente</span>';
     } else if(s.lifecycle_state === 'Draft'){
@@ -357,8 +361,15 @@ import '../styles/calendar.css';
     }
     const d = e.target.closest('[data-del]');
     if(d){
-      UI.emModal({ title:'Supprimer ce brouillon ?', body:'Rien n’est publié : la suppression est le filet en cas d’erreur de duplication.',
-        submitLabel:'Supprimer', danger:true, onSubmit: async ()=>{ await API.calendarDeleteDraft(d.dataset.del); UI.emToast('Brouillon supprimé.','success'); load(); } });
+      /* CAL-DEL (DEC-F) : modale NOMMÉE — le code ET le libellé dans le titre, la conséquence
+         irréversible dans le corps, le verbe + l'objet sur le bouton. Jamais « OK ». Le serveur
+         re-vérifie l'éligibilité complète (verdict GK9) : le bouton n'apparaît que si can_delete. */
+      const s = findSession(d.dataset.del) || { session_code: d.dataset.del };
+      UI.emModal({ title: 'Supprimer '+s.session_code+' ?',
+        body: (s.label ? K.fullName(s)+' — ' : '')
+          + 'la session disparaît définitivement. Aucune candidature n’y est rattachée. Acte irréversible.',
+        submitLabel: 'Supprimer '+s.session_code, danger:true,
+        onSubmit: async ()=>{ await API.calendarDeleteDraft(d.dataset.del); UI.emToast('Session supprimée.','success'); load(); } });
       return;
     }
     /* CAL-14 : `data-open-session` (id de session), JAMAIS `[data-open]` — ce dernier est aussi
