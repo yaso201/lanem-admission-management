@@ -15,6 +15,34 @@
 
   function csrf() { return S.getItem('emela_csrf') || ''; }
 
+  /* PAY-IDEM (faille 16) — clé d'idempotence STABLE PAR INTENTION pour l'initiation staff en ligne.
+     Le serveur (initiate_online_payment) ACCEPTE déjà idempotency_key ; le client ne l'envoyait pas
+     → deux clics créaient deux transactions FedaPay. Identité = dossier : feeType : online : amount.
+     Mémorisée en sessionStorage (survit au rechargement de la page staff, PAS à une nouvelle session),
+     rejouée à l'identique sur réessai, renouvelée si l'identité change, fenêtre bornée 30 min (alignée
+     sur la reprise applicant). Purge non nécessaire : le serveur déduplique, un frais confirmé n'est
+     pas ré-initié, l'expiration couvre le reste. */
+  const PAYINTENT_STORE = 'emela.staff.payintent';
+  const PAYINTENT_WINDOW_MS = 30 * 60 * 1000;
+  function paymentIntentKey(dossierId, feeType, amount) {
+    const now = Date.now();
+    const identity = [dossierId, feeType, 'online', amount || 0].join(':');
+    let store = {};
+    try { store = JSON.parse(S.getItem(PAYINTENT_STORE) || '{}') || {}; } catch (e) { store = {}; }
+    const live = {};
+    for (const k in store) { if (store[k] && store[k].exp > now) live[k] = store[k]; }
+    store = live;
+    let entry = store[identity];
+    if (!entry || !entry.key || entry.exp <= now) {
+      const rand = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID()
+        : now + '-' + Math.random().toString(36).slice(2, 10);
+      entry = { key: 'pay-' + rand, exp: now + PAYINTENT_WINDOW_MS };
+      store[identity] = entry;
+    }
+    try { S.setItem(PAYINTENT_STORE, JSON.stringify(store)); } catch (e) {}
+    return entry.key;
+  }
+
   function authError(status, body) {
     // Session absente/expirée ou CSRF invalide → retour connexion
     const excType = (body && (body.exc_type || body.exception)) || '';
@@ -358,9 +386,11 @@
       });
     },
     initiateOnlinePayment(id, feeType, acompte) {
+      const ft = feeType || 'application';
       return staffCall('initiate_online_payment', {
         method: 'POST',
-        body: { dossier_id: id, fee_type: feeType || 'application', acompte_xof: acompte || 0 },
+        body: { dossier_id: id, fee_type: ft, acompte_xof: acompte || 0,
+                idempotency_key: paymentIntentKey(id, ft, acompte || 0) },
       });
     },
     async uploadJustificatif(file) {
