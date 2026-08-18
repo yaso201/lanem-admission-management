@@ -170,6 +170,10 @@ import Layout from '../layouts/Layout.astro';
   .act-blocked { display: flex; flex-direction: column; gap: var(--space-1); }
   .act-blocked .act-btn { opacity: .5; cursor: not-allowed; }
   .act-blocked-why { font-size: var(--text-xs); color: var(--text-secondary); line-height: var(--leading-normal); margin: 0; padding-left: var(--space-3); }
+  /* NT-UX-2 — bouton « Confirmer » grisé + raison à la ligne de paiement (patron .act-blocked). */
+  .pay-reserved { display: inline-flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
+  .pay-reserved .act-btn { opacity: .5; cursor: not-allowed; }
+  .pay-reserved-why { font-size: var(--text-xs); color: var(--text-secondary); line-height: var(--leading-normal); text-align: right; }
   .role-admin .role-dot { background: var(--role-admin); }
   .role-resp  .role-dot { background: var(--accent-500); }
   .role-dir   .role-dot { background: var(--role-direction); }
@@ -504,6 +508,10 @@ import Layout from '../layouts/Layout.astro';
     const fees = D.frais||[], pays = D.paiements||[];
     const pendingOffline = pays.filter(p=>p.payment_status==='Pending' && (p.payment_mode==='Cash'||p.payment_mode==='Bank'));
     badge($('pay-badge'), pendingOffline.length? pendingOffline.length+' à confirmer':'À jour', pendingOffline.length?'warning':'success');
+    // NT-UX-2 — condition de rôle-workflow servie par blocked_actions : confirmer un paiement (→SOU)
+    // est réservé à l'Administratif. Pour un rôle non autorisé (Direction/Responsable), on GRISE le
+    // bouton avec sa raison plutôt que de le laisser actif puis rejeté par le workflow après saisie.
+    const cpReserved = (D.blocked_actions||[]).find(b=>b.action==='confirm_payment');
     let html = '';
     fees.forEach(f=>{
       const fp = pays.filter(p=>p.applicant_fee===f.name);
@@ -516,9 +524,11 @@ import Layout from '../layouts/Layout.astro';
         html += '<span class="em-badge em-badge--success em-badge--sm"><span class="em-badge-dot"></span>'+(f.status==='Paid'?'Payé':'Confirmé')+'</span>'+
           '<button class="em-btn em-btn--secondary em-btn--sm" data-receipt="'+esc(conf.name)+'">Reçu PDF</button>';
       } else if(pend && (pend.payment_mode==='Cash'||pend.payment_mode==='Bank')){
-        html += (D.can_manage_payments
-          ? '<button class="em-btn em-btn--primary em-btn--sm" data-confirm="'+esc(pend.name)+'"><svg class="ico-sm"><use href="#i-check"/></svg>Confirmer</button>'
-          : '<span class="em-badge em-badge--warning em-badge--sm"><span class="em-badge-dot"></span>En attente</span>');
+        html += (cpReserved
+          ? '<span class="pay-reserved"><button class="em-btn em-btn--secondary em-btn--sm act-btn" disabled><svg class="ico-sm"><use href="#i-check"/></svg>Confirmer</button><span class="pay-reserved-why">'+esc(cpReserved.reason)+' — '+esc(cpReserved.actor)+'</span></span>'
+          : D.can_manage_payments
+            ? '<button class="em-btn em-btn--primary em-btn--sm" data-confirm="'+esc(pend.name)+'"><svg class="ico-sm"><use href="#i-check"/></svg>Confirmer</button>'
+            : '<span class="em-badge em-badge--warning em-badge--sm"><span class="em-badge-dot"></span>En attente</span>');
       } else if(pend){
         html += '<span class="em-badge em-badge--warning em-badge--sm"><span class="em-badge-dot"></span>En ligne · en attente webhook</span>';
       } else if(D.can_manage_payments){
@@ -839,7 +849,9 @@ import Layout from '../layouts/Layout.astro';
 
     // NT-UX (DEC-B) — APRÈS les actions disponibles : les jalons pertinents à l'état mais BLOQUÉS
     // par une condition franchissable, rendus grisés + raison + acteur (calcul serveur blocked_actions).
-    (D.blocked_actions || []).forEach(bk => body.appendChild(blockedBtn(bk)));
+    // NT-UX-2 : `confirm_payment` est un blocage de rôle-workflow rendu à la LIGNE DE PAIEMENT
+    // (renderPay), pas dans le panneau d'actions — on l'exclut ici pour éviter un doublon.
+    (D.blocked_actions || []).filter(bk => bk.action !== 'confirm_payment').forEach(bk => body.appendChild(blockedBtn(bk)));
 
     if(!body.children.length){
       // NT-UX (DEC-C) — aucun geste staff ne fait avancer le dossier : nommer la condition manquante
