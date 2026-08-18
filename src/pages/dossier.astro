@@ -418,8 +418,11 @@ import Layout from '../layouts/Layout.astro';
 
   function renderPieces(){
     const pieces = D.pieces||[];
-    const missing = pieces.filter(p=>p.requise && p.statut==='missing').length;
-    badge($('pieces-badge'), missing? missing+' manquante(s)' : 'Complètes', missing?'warning':'success');
+    // PIECES-REQ (D-D, concordance) : « manquante » = requise NON fournie (missing OU rejected) —
+    // même critère « fournie » (uploaded|verified) que le X/Y du résumé. Ainsi « Complètes » ⟺ X/Y
+    // au maximum dans TOUS les cas (une pièce requise rejetée n'est pas un dossier complet).
+    const missing = pieces.filter(p=>p.requise && p.statut!=='uploaded' && p.statut!=='verified').length;
+    badge($('pieces-badge'), missing? missing+' à fournir' : 'Complètes', missing?'warning':'success');
     // FIX-PROGRESSION — pur renderer : le BACK dit qui peut contrôler les pièces (can_control_pieces
     // = ADMIN_UP + SOU, hiérarchie live). Le front garde ses sous-conditions per-pièce (uploaded→
     // vérifiable, verified→verrouillée). Plus de ROLE==='admin' codé en dur.
@@ -428,9 +431,14 @@ import Layout from '../layouts/Layout.astro';
     const B = (p,a,l,k)=>'<button class="em-btn em-btn--'+k+' em-btn--sm" data-pact="'+a+'" data-code="'+esc(p.code)+'">'+l+'</button>';
     $('pieces-body').innerHTML = pieces.length ? pieces.map(p=>{
       const ok = p.statut==='verified';
+      // PIECES-REQ (DEC-O-6) : la surcharge d'exigence n'a de sens qu'AVANT dépôt. Dès que la pièce
+      // est déposée, Exigée comme Dispensée deviennent sans effet → masquées (pas de « Vérifiée +
+      // Exigée » ni « présent + Dispensée »). Aucune purge : la surcharge reste en base, inerte.
       let req = '';
-      if(p.staff_requirement==='required') req = '<span class="em-badge em-badge--accent em-badge--sm">Exigée</span>';
-      else if(p.staff_requirement==='waived') req = '<span class="em-badge em-badge--neutral em-badge--sm">Dispensée</span>';
+      if(p.statut==='missing'){
+        if(p.staff_requirement==='required') req = '<span class="em-badge em-badge--accent em-badge--sm">Exigée</span>';
+        else if(p.staff_requirement==='waived') req = '<span class="em-badge em-badge--neutral em-badge--sm">Dispensée</span>';
+      }
       const motif = (p.statut==='rejected' && (p.reject_reason||p.reject_comment))
         ? '<div class="doc-meta" style="color:var(--clay-deep)">Refusée : '+esc(p.reject_reason||'')+(p.reject_comment?' — '+esc(p.reject_comment):'')+'</div>' : '';
       let btns = '';
@@ -438,10 +446,15 @@ import Layout from '../layouts/Layout.astro';
         let v='';  // axe FORME (verdict) — DEC-F : « Réviser le verdict » quand un verdict existe déjà
         if(p.statut==='uploaded'||p.statut==='rejected') v += B(p,'verify', p.statut==='rejected'?'Réviser le verdict':'Vérifier','primary');
         if(p.statut==='uploaded'||p.statut==='verified') v += B(p,'reject', p.statut==='verified'?'Réviser le verdict':'Refuser','secondary');
-        let e='';  // axe EXIGENCE (transitions utiles seulement)
-        if(p.staff_requirement!=='required') e += B(p,'require','Exiger','ghost');
-        if(p.staff_requirement!=='waived') e += B(p,'waive','Dispenser','ghost');
-        if(p.staff_requirement!=='default') e += B(p,'reset','Réinitialiser','ghost');
+        // axe EXIGENCE — PIECES-REQ (DEC-O-1/7) : se décide AVANT le dépôt. Dès que la pièce est
+        // déposée, ces actions n'ont plus d'objet → masquées (pas grisées : une action sans objet
+        // ne s'explique pas). Le serveur refuse aussi (REQUIREMENT_LOCKED). Réapparaissent si missing.
+        let e='';
+        if(p.statut==='missing'){
+          if(p.staff_requirement!=='required') e += B(p,'require','Exiger','ghost');
+          if(p.staff_requirement!=='waived') e += B(p,'waive','Dispenser','ghost');
+          if(p.staff_requirement!=='default') e += B(p,'reset','Réinitialiser','ghost');
+        }
         const view = p.has_file ? B(p,'view','Voir','ghost') : '';
         btns = '<div class="doc-btns">'+v+e+view+'</div>';
       } else if(p.has_file){
@@ -636,9 +649,13 @@ import Layout from '../layouts/Layout.astro';
 
   function renderSummary(){
     const pieces = D.pieces||[];
-    const done = pieces.filter(p=>p.statut==='uploaded'||p.statut==='verified').length;
+    // PIECES-REQ (DEC-O-3/D-D) : la complétude mesure « les documents EXIGÉS sont-ils fournis ? » —
+    // requise_effective (waived exclu), aligné sur le badge « manquantes/Complètes ». Une pièce
+    // dispensée puis déposée ne gonfle plus le compteur ; les deux indicateurs CONCORDENT.
+    const req_pieces = pieces.filter(p=>p.requise);
+    const done = req_pieces.filter(p=>p.statut==='uploaded'||p.statut==='verified').length;
     const rows = [
-      ['Complétude', done+' / '+pieces.length+' pièces'],
+      ['Complétude', done+' / '+req_pieces.length+' pièces'],
       ['Statut', (STATUS[D.statut]||{}).l || D.statut],
       ['Bourse', (D.bourses.validees||[]).length?'Validée':( (D.bourses.proposees||[]).length?'Proposée':( (D.bourses.demandees||[]).length?'Demandée':'—'))],
     ];
