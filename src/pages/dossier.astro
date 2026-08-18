@@ -45,6 +45,10 @@ import Layout from '../layouts/Layout.astro';
   .related-context { min-width: 0; font-size: var(--text-xs); color: var(--text-secondary); }
   .related-context b { color: var(--text-primary); font-weight: 600; }
   .related-state { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); white-space: nowrap; }
+  /* DS-CLEAN 1.1 : le chevron .row-go n'avait AUCUNE dimension → un <svg><use> sans width/height reçoit
+     la taille par défaut d'un remplacé (300×150 px), gonflant la colonne `auto` et écrasant le contexte
+     en `minmax(0,1fr)`. On le borne (patron déjà appliqué dans liste-dossiers.astro:49). CSS seul. */
+  .related-state .row-go { width: 16px; height: 16px; flex-shrink: 0; color: var(--warning-700); }
   @media (max-width: 680px){ .related-row { grid-template-columns: 1fr; gap: var(--space-2); } .related-state { justify-content: flex-start; } }
 
   /* Pipeline workflow */
@@ -330,7 +334,7 @@ import Layout from '../layouts/Layout.astro';
   let D = null, ROLE = null;
 
   const STATUS = {
-    BRO:{l:'Brouillon'}, SOP:{l:'Soumis (prov.)'}, SOU:{l:'Soumis'},
+    BRO:{l:'Brouillon'}, SOP:{l:'Soumis (provisoire)'}, SOU:{l:'Soumis'},
     INC:{l:'Incomplet'}, ETU:{l:'En étude'}, ATT:{l:"Liste d'attente"},
     ADM:{l:'Admissible'}, ACO:{l:'Admis sous réserve'}, ACC:{l:'Accepté'},
     INS:{l:'Inscrit'}, ABS:{l:'Absent'}, REF:{l:'Refusé'}, REJ:{l:'Rejeté (doc.)'}, DES:{l:'Désisté'}
