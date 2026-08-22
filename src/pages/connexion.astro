@@ -143,7 +143,10 @@ import BareLayout from '../layouts/BareLayout.astro';
   const HOME = { admin: '/espace-administratif', resp: '/cockpit-responsable', dir: '/tableau-direction', sm: '/personnel' };
   function goHome(me){
     const role = window.EmelaAPI.uxRole(me.roles);
-    window.location.href = HOME[role] || '/personnel';
+    // STAFF-GATE (DEC-C) : revenir à la page demandée (?next=), validée MÊME ORIGINE via
+    // safeNextPath (rejette //host, https://evil, javascript:, /connexion). Sinon accueil du rôle.
+    const next = window.EmelaAPI.safeNextPath(new URLSearchParams(location.search).get('next'));
+    window.location.href = next || HOME[role] || '/personnel';
   }
 
   if (new URLSearchParams(location.search).get('expire')) {

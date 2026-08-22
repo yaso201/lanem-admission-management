@@ -15,6 +15,35 @@
 
   function csrf() { return S.getItem('emela_csrf') || ''; }
 
+  /* STAFF-GATE — redirection UNIQUE vers /connexion, sûre contre les boucles et portant
+     `next` (retour à la page demandée après connexion, DEC-C). Émission ET réception valident
+     `next` : n'accepter qu'un chemin RELATIF de MÊME origine — rejeter //host, https://evil,
+     javascript:, les antislashs et /connexion lui-même (pas de redirection ouverte). */
+  function safeNextPath(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    let u;
+    try { u = new URL(raw, window.location.origin); } catch (e) { return null; }
+    if (u.origin !== window.location.origin) return null;   // absolu cross-site, //host, javascript: → rejetés
+    const p = u.pathname + u.search + u.hash;
+    if (p[0] !== '/' || p[1] === '/') return null;          // doit rester un chemin du site (garde-fou en plus de l'origine)
+    if (p === '/connexion' || p.indexOf('/connexion?') === 0) return null;  // anti-boucle
+    return p;
+  }
+  // Verrou de ré-entrée : une seule navigation, même si request() et le garde de page l'appellent tous deux.
+  let _navigatingToLogin = false;
+  function gotoLogin(opts) {
+    opts = opts || {};
+    if (_navigatingToLogin) return;
+    if (window.location.pathname === '/connexion') return;  // déjà sur la page publique → pas de boucle (DEC-E)
+    const q = new URLSearchParams();
+    const next = safeNextPath(opts.next);
+    if (next) q.set('next', next);
+    if (opts.expired) q.set('expire', '1');
+    const qs = q.toString();
+    _navigatingToLogin = true;
+    window.location.href = '/connexion' + (qs ? '?' + qs : '');
+  }
+
   /* PAY-IDEM (faille 16) — clé d'idempotence STABLE PAR INTENTION pour l'initiation staff en ligne.
      Le serveur (initiate_online_payment) ACCEPTE déjà idempotency_key ; le client ne l'envoyait pas
      → deux clics créaient deux transactions FedaPay. Identité = dossier : feeType : online : amount.
@@ -99,9 +128,9 @@
     try { json = await res.json(); } catch (e) { /* corps non-JSON */ }
     if (authError(res.status, json)) {
       S.removeItem('emela_csrf'); S.removeItem('emela_user');
-      if (window.location.pathname !== '/connexion') {
-        window.location.href = '/connexion?expire=1';
-      }
+      // STAFF-GATE : expiration en cours de session → retour connexion en gardant la page
+      // courante comme `next` (DEC-C) + drapeau expire (message dédié). gotoLogin est loop-safe.
+      gotoLogin({ next: window.location.pathname + window.location.search, expired: true });
       throw { code: 'AUTH', message: 'Session expirée ou rôle admission absent.', httpStatus: res.status };
     }
     const message = json && json.message !== undefined ? json.message : json;
@@ -137,6 +166,10 @@
 
   const API = {
     BASE,
+
+    /* ---- STAFF-GATE : redirection connexion + validation next (garde de page & post-login) ---- */
+    gotoLogin,
+    safeNextPath,
 
     /* ---- session (DEC-264) ---- */
     // Étape 1 : usr/pwd. Si 2FA actif (rôle Admission SM…), Frappe renvoie 200 avec

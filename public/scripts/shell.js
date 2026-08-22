@@ -50,16 +50,58 @@
     });
     // STAFF-HEADER-NAV : le logo (.brand[data-home]) mène à l'accueil du rôle (superset SM inclus).
     document.querySelectorAll('a[data-home]').forEach(a => a.setAttribute('href', ROLE_HOME[role]));
+    // NB : onEmelaRole (chargement des DONNÉES de page) est appelé par boot() APRÈS reveal(),
+    // pour qu'une erreur de données ne puisse jamais laisser la page masquée (STAFF-GATE).
+  }
 
-    if (typeof window.onEmelaRole === 'function') window.onEmelaRole(role, me);
+  /* STAFF-GATE — révélation : retire le cloak posé par Layout (le body redevient visible). */
+  function reveal() {
+    var c = document.getElementById('auth-cloak');
+    if (c) c.remove();
+  }
+
+  /* STAFF-GATE — panne réseau (DEC-F) : NE PAS déconnecter, NE PAS révéler la structure.
+     Carte bloquante affichée PAR-DESSUS le cloak : `visibility:visible` sur l'overlay seul
+     ré-affiche la carte alors que le body reste masqué (visibility hérite, mais un enfant peut
+     forcer sa propre visibilité) → zéro fuite de structure. Réessai = rechargement. */
+  function showNetworkRetry() {
+    if (document.getElementById('auth-neterr')) return;
+    var ov = document.createElement('div');
+    ov.id = 'auth-neterr';
+    ov.setAttribute('role', 'alert');
+    ov.style.cssText = 'visibility:visible;position:fixed;inset:0;z-index:2147483647;display:flex;'
+      + 'align-items:center;justify-content:center;padding:24px;background:var(--surface-canvas,#f6f5fb)';
+    var card = document.createElement('div');
+    card.style.cssText = 'max-width:420px;text-align:center;background:var(--surface-paper,#fff);'
+      + 'border-radius:14px;padding:28px 26px;box-shadow:0 20px 60px rgba(0,0,0,.16)';
+    var h = document.createElement('h1');
+    h.style.cssText = 'font-family:var(--font-display);font-size:19px;font-weight:700;margin:0 0 8px;color:var(--text-primary)';
+    h.textContent = 'Connexion au serveur impossible';
+    var p = document.createElement('p');
+    p.style.cssText = 'font-size:14px;color:var(--text-secondary);margin:0 0 20px;line-height:1.5';
+    p.textContent = "Vous n'êtes pas déconnecté. Vérifiez votre connexion, puis réessayez.";
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'em-btn em-btn--primary';   // design system (feedback : réutiliser le DS)
+    btn.textContent = 'Réessayer';
+    btn.addEventListener('click', function () { window.location.reload(); });
+    card.appendChild(h); card.appendChild(p); card.appendChild(btn);
+    ov.appendChild(card);
+    document.body.appendChild(ov);
   }
 
   async function boot() {
     let me = null;
     try {
-      me = await window.EmelaAPI.whoami(); // session absente/expirée → api.js redirige /connexion
+      me = await window.EmelaAPI.whoami();
     } catch (e) {
-      return; // la redirection est déjà en cours
+      // STAFF-GATE — verdict de session, cloak toujours posé :
+      //  · panne RÉSEAU (DEC-F) → on NE déconnecte PAS : carte « Réessayer », structure masquée.
+      //  · tout autre échec (401/403/…) → pas de session staff valide → /connexion. Le cloak
+      //    reste posé pendant la navigation → la structure ne s'affiche JAMAIS (DEC-B, point 1).
+      if (e && (e.code === 'NETWORK' || e.httpStatus === 0)) { showNetworkRetry(); return; }
+      window.EmelaAPI.gotoLogin({ next: location.pathname + location.search });
+      return;
     }
     const role = window.EmelaAPI.uxRole(me.roles);
     window.EmelaShell.role = role;
@@ -90,6 +132,12 @@
         userCard.parentNode.insertBefore(btn, userCard.nextSibling);
       }
     }
+
+    // STAFF-GATE — la page est dans son état FINAL (rôle appliqué, nav filtrée) → on révèle.
+    reveal();
+    // Le chargement des DONNÉES de page (onEmelaRole) s'exécute APRÈS reveal : une erreur y est
+    // remontée par OBS-1 mais ne peut jamais re-masquer la page (déjà révélée).
+    if (typeof window.onEmelaRole === 'function') window.onEmelaRole(role, me);
   }
 
   window.EmelaShell = { ROLE_HOME, ROLE_LABEL, role: null, me: null };

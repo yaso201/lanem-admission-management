@@ -59,6 +59,20 @@ const crumbs = CRUMBS[page] || [];
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <link rel="icon" href="/favicon.ico" />
+    <!-- STAFF-GATE : cloak anti-clignotement (pages protégées = celles qui héritent de Layout).
+         Front STATIQUE (aucun adapter Astro) → la session est un appel réseau ASYNC : impossible de
+         savoir avant de peindre. On MASQUE le body avant tout rendu ; shell.js tranche au boot :
+           · session valide  → reveal() retire ce cloak (page dans son état final) ;
+           · auth absente     → redirection /connexion, cloak MAINTENU → la structure ne s'affiche
+                                JAMAIS, même une fraction de seconde (DEC-B, cœur du lot) ;
+           · panne réseau     → carte « Réessayer », cloak maintenu (pas de déconnexion, DEC-F).
+         VOLONTAIREMENT SANS FAILSAFE. N'AJOUTEZ PAS de « timeout de sécurité » qui révélerait la page
+         tout seul : ce serait un CONTOURNEMENT du garde — il suffirait de bloquer shell.js pour voir
+         la structure. Un garde qui s'ouvre seul n'est pas un garde. Si les scripts ne chargent pas,
+         la page RESTE BLANCHE : panne visible, déjà remontée par OBS-1. C'est un choix, pas un oubli. -->
+    <!-- is:inline OBLIGATOIRE : sans lui Astro SCOPE le style (body → body[data-astro-cid]) et
+         l'extrait dans le bundle CSS externe → le cloak ne s'appliquerait jamais. Verbatim en head. -->
+    <style is:inline id="auth-cloak">body{visibility:hidden!important}</style>
     <script is:inline define:vars={{ apiBase }}>window.EMELA_API_BASE = apiBase;</script>
     <!-- OBS-1 : capture d'erreur front AVANT api/ui/shell → attrape aussi un échec de chargement (ex. EmelaUI undefined). Silence défensif. -->
     <script is:inline>
@@ -82,10 +96,12 @@ const crumbs = CRUMBS[page] || [];
          Ordre api→ui→shell préservé ; EMELA_API_BASE reste avant api.js ; shell.js boote en
          DOMContentLoaded (aucun accès DOM au load). -->
     <!-- CAL-13 : ?v= casse le cache navigateur (asset public/ non hashé, max-age=43200) —
-         BUMPER à chaque modification de api.js, dans le même commit -->
-    <script is:inline src="/scripts/api.js?v=4"></script>
+         BUMPER à chaque modification, dans le même commit. STAFF-GATE : api.js ?v=4→?v=5 (garde
+         gotoLogin/safeNextPath) ; shell.js versionné ?v=1 (dette latente fermée — il était servi
+         SANS paramètre, comme ui.js avant A11Y-1 ; bumper à toute modif désormais). -->
+    <script is:inline src="/scripts/api.js?v=5"></script>
     <script is:inline src="/scripts/ui.js?v=1"></script>
-    <script is:inline src="/scripts/shell.js"></script>
+    <script is:inline src="/scripts/shell.js?v=1"></script>
   </head>
   <body data-role={role} data-page={page} data-shared={shared ? '' : undefined} data-prog={prog}>
     <Icons />
