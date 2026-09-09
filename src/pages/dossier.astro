@@ -507,7 +507,23 @@ import Layout from '../layouts/Layout.astro';
   function renderPay(){
     const fees = D.frais||[], pays = D.paiements||[];
     const pendingOffline = pays.filter(p=>p.payment_status==='Pending' && (p.payment_mode==='Cash'||p.payment_mode==='Bank'));
-    badge($('pay-badge'), pendingOffline.length? pendingOffline.length+' à confirmer':'À jour', pendingOffline.length?'warning':'success');
+    // Résumé HONNÊTE de l'état de paiement : le vert « Soldé » est RÉSERVÉ aux frais tous encaissés.
+    // Un dossier non payé n'est PLUS vert (l'ancien « À jour » attrape-tout laissait croire à un dossier
+    // réglé alors qu'il ne l'était pas). On classe chaque frais, puis on résume par priorité d'action.
+    let nConf=0, nOnline=0;
+    fees.forEach(f=>{
+      const fp = pays.filter(p=>p.applicant_fee===f.name);
+      if(fp.some(p=>p.payment_status==='Confirmed'||p.payment_status==='Paid')) nConf++;
+      else if(fp.some(p=>p.payment_status==='Pending' && p.payment_mode!=='Cash' && p.payment_mode!=='Bank')) nOnline++;
+    });
+    let payText, payKind;
+    if(!fees.length){ payText='—'; payKind='neutral'; }
+    else if(pendingOffline.length){ payText=pendingOffline.length+' à confirmer'; payKind='warning'; }
+    else if(nConf===fees.length){ payText='Soldé'; payKind='success'; }
+    else if(nOnline){ payText='Paiement en cours'; payKind='info'; }
+    else if(nConf){ payText='Partiel'; payKind='neutral'; }
+    else { payText='Non payé'; payKind='neutral'; }
+    badge($('pay-badge'), payText, payKind);
     // NT-UX-2 — condition de rôle-workflow servie par blocked_actions : confirmer un paiement (→SOU)
     // est réservé à l'Administratif. Pour un rôle non autorisé (Direction/Responsable), on GRISE le
     // bouton avec sa raison plutôt que de le laisser actif puis rejeté par le workflow après saisie.
