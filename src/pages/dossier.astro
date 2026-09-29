@@ -345,7 +345,9 @@ import Layout from '../layouts/Layout.astro';
   };
   const PIECE_LABELS = { missing:'Manquante', uploaded:'Déposée', verified:'Vérifiée', rejected:'Rejetée' };
   const REJECT_REASONS = ['Illisible / floue','Mauvaise pièce','Incomplète','Non conforme','Expirée','Autre'];
-  const FEE_LABELS = { application:'Frais de candidature', competition:'Frais de concours', enrollment:"Frais d'inscription (frais 2)", annual:'Scolarité annuelle' };
+  /* Libellés de frais : source unique dans ui.js (ils étaient dupliqués ici ET dans
+     tableau-direction.astro, déjà divergents sur `annual`). */
+  const FEE_LABELS = window.EmelaUI.FEE_TYPE_LABELS;
   const PM_LABELS = { Cash:'Espèces', Bank:'Virement bancaire', Online:'En ligne' };
 
   function $(id){ return document.getElementById(id); }

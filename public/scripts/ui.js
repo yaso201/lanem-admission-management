@@ -211,5 +211,21 @@
     ));
   }
 
-  window.EmelaUI = { emModal, emToast, esc };
+  /* Libellés des types de frais — SOURCE UNIQUE du back-office.
+     Ils vivaient en double, dans dossier.astro ET tableau-direction.astro, et avaient déjà
+     divergé : `annual` n'existait que dans le premier. Toute clé manquante affichait le code
+     brut (« annual ») à la place du libellé. Une seule table, deux consommateurs. */
+  const FEE_TYPE_LABELS = {
+    application: 'Frais de candidature',
+    competition: 'Frais de concours',
+    enrollment: "Frais d'inscription (frais 2)",
+    annual: 'Scolarité annuelle',
+  };
+  /* Repli explicite sur le code : un type inconnu reste LISIBLE et signale qu'il manque ici,
+     plutôt que de disparaître silencieusement. */
+  function feeLabel(code) {
+    return FEE_TYPE_LABELS[code] || String(code ?? '');
+  }
+
+  window.EmelaUI = { emModal, emToast, esc, FEE_TYPE_LABELS, feeLabel };
 })();

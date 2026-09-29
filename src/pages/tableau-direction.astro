@@ -127,7 +127,9 @@ import Layout from '../layouts/Layout.astro';
    Aucun montant calculé côté front : les sommes encaissées viennent du serveur (A03). */
 (function(){
   const API = window.EmelaAPI, esc = window.EmelaUI.esc;
-  const FEE_LABELS = { application:'Frais de candidature', competition:'Frais de concours', enrollment:"Frais d'inscription (frais 2)" };
+  /* Libellés de frais : source unique dans ui.js. Cette copie locale ignorait `annual`,
+     qui s'affichait donc en code brut si un montant de scolarité remontait ici. */
+  const FEE_LABELS = window.EmelaUI.FEE_TYPE_LABELS;
 
   window.onEmelaRole = async function(){
     let S;
